@@ -10,12 +10,13 @@ export default function TabLayout() {
     headerShown: false,
     tabBarActiveTintColor: colors.brand,
     tabBarInactiveTintColor: colors.inkMuted,
-    tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border, height: 76, paddingTop: 8, paddingBottom: 12 },
+    tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border, height: 78, paddingTop: 8, paddingBottom: 12, elevation: 0 },
     tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
   }}>
-    <Tabs.Screen name="index" options={{ title: '今天', tabBarIcon: tabIcon('○', '●') }} />
-    <Tabs.Screen name="search" options={{ title: '查食物', tabBarIcon: tabIcon('⌕', '⌕') }} />
-    <Tabs.Screen name="log" options={{ title: '饮食记录', tabBarIcon: tabIcon('▤', '▥') }} />
+    <Tabs.Screen name="index" options={{ title: '今天', tabBarIcon: tabIcon('⌂', '⌂') }} />
+    <Tabs.Screen name="search" options={{ title: '记餐', tabBarIcon: tabIcon('⌕', '⌕') }} />
+    <Tabs.Screen name="recipes" options={{ title: '菜谱', tabBarIcon: tabIcon('▣', '▣') }} />
+    <Tabs.Screen name="log" options={{ title: '日志', tabBarIcon: tabIcon('▤', '▥') }} />
     <Tabs.Screen name="profile" options={{ title: '我的', tabBarIcon: tabIcon('♙', '♟') }} />
   </Tabs>;
 }

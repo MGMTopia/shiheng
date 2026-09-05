@@ -2,40 +2,134 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { FoodRow } from '@/components/food-row';
-import { Card, Screen } from '@/components/ui';
+import { Card, PrimaryButton, Screen, SectionTitle } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
-import { foodCategories, foods } from '@/data/foods';
-import { FoodCategory } from '@/types/nutrition';
+import { catalogMeta, catalogSourceFilters, createFoodIndex, foodCategories, loggedFoodIds, searchCatalog, statusForFood } from '@/data/catalog';
+import { mergedRecipes } from '@/data/recipes';
+import { formatEnergyPair, mealItemNames, recipeEnergyPerServe } from '@/domain/nutrition';
+import { useNutrition } from '@/store/nutrition-store';
+import { incrementLocalMetric } from '@/services/local-metrics';
+import type { CatalogSourceFilter, FoodCategory } from '@/types/nutrition';
+
+const quickAdds = [
+  { id: 'white-rice-cooked', label: '米饭' },
+  { id: 'egg-boiled', label: '鸡蛋' },
+  { id: 'tofu-firm', label: '豆腐' },
+  { id: 'apple', label: '苹果' },
+];
 
 export default function SearchScreen() {
+  const { customFoods, favouriteFoodIds, entries, verifiedFoodIds, recipes } = useNutrition();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<'all' | FoodCategory>('all');
-  const results = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return foods.filter((food) => (category === 'all' || food.category === category) && (!needle ||
-      food.nameZh.includes(needle) || food.nameEn.toLowerCase().includes(needle) || food.aliases.some((alias) => alias.toLowerCase().includes(needle))));
-  }, [category, query]);
+  const [source, setSource] = useState<CatalogSourceFilter>('common');
+  const loggedCount = loggedFoodIds(entries).length;
+  const foodIndex = createFoodIndex(customFoods);
+  const results = useMemo(() => searchCatalog({
+    customFoods, query, category, favouriteFoodIds, entries, verifiedFoodIds, source,
+  }), [category, customFoods, entries, favouriteFoodIds, query, source, verifiedFoodIds]);
+  const suggested = mergedRecipes(recipes).slice(0, 3);
+  const recentIds = [...new Set([...entries].reverse().map((entry) => entry.foodId))].slice(0, 4);
+  const recentFoods = recentIds.map((id) => foodIndex[id]).filter(Boolean);
+  const showBrowse = query.trim().length > 0 || source !== 'common' || category !== 'all';
+  const submitSearch = () => incrementLocalMetric(results.length ? 'search_used' : 'search_empty').catch(() => undefined);
+  const openFood = (foodId: string) => {
+    incrementLocalMetric('food_opened').catch(() => undefined);
+    router.push({ pathname: '/food/[id]', params: { id: foodId } });
+  };
 
   return <Screen>
-    <View><Text style={styles.title}>查食物</Text><Text style={styles.subtitle}>支持中英文名称，首批数据用于验证记录流程。</Text></View>
-    <View style={styles.searchBox}><Text style={styles.searchIcon}>⌕</Text><TextInput value={query} onChangeText={setQuery} placeholder="米饭、salmon、番茄炒蛋…" placeholderTextColor={colors.inkMuted} style={styles.input} autoCapitalize="none" returnKeyType="search" /></View>
+    <View><Text style={styles.title}>记这一餐</Text><Text style={styles.subtitle}>合菜、油量和份量在下一步确认。空白搜索显示常吃食物，输入后可搜澳洲官方库。</Text></View>
+    <View style={styles.searchBox}><Text style={styles.searchIcon}>⌕</Text><TextInput value={query} onChangeText={setQuery} onSubmitEditing={submitSearch} placeholder="青菜、bok choy、叉烧饭、9300652010794…" placeholderTextColor={colors.inkMuted} style={styles.input} autoCapitalize="none" returnKeyType="search" /></View>
+
+    <Text style={styles.sectionLabel}>快速添加</Text>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow}>
+      {quickAdds.map((item) => <Pressable key={item.id} onPress={() => openFood(item.id)} style={styles.quickChip}><Text style={styles.quickText}>{item.label}</Text></Pressable>)}
+      <Pressable onPress={() => router.push('/custom-food')} style={[styles.quickChip, styles.quickCustom]}><Text style={styles.quickCustomText}>自定义</Text></Pressable>
+    </ScrollView>
+
+    {!showBrowse && <>
+      <SectionTitle action={<Pressable onPress={() => router.push('/recipes')}><Text style={styles.link}>全部菜谱</Text></Pressable>}>常吃套餐</SectionTitle>
+      {suggested.map((recipe) => <Pressable key={recipe.id} onPress={() => router.push({ pathname: '/recipe/[id]', params: { id: recipe.id } })} style={styles.recipeCard}>
+        <View style={styles.recipeMain}>
+          <Text style={styles.recipeName}>{recipe.nameZh}</Text>
+          <Text style={styles.recipeMeta}>{mealItemNames(recipe.items.map((item) => ({ id: item.foodId, foodId: item.foodId, servings: item.servings, meal: 'dinner', recordedAt: '' })), foodIndex)} · {recipe.prepMinutes ?? 15} 分钟</Text>
+        </View>
+        <Text style={styles.recipeEnergy}>{formatEnergyPair(recipeEnergyPerServe(recipe, foodIndex))}</Text>
+      </Pressable>)}
+      {recentFoods.length > 0 && <>
+        <SectionTitle>最近吃过</SectionTitle>
+        <Card style={styles.resultsCard}>
+          {recentFoods.map((food) => <FoodRow key={food.id} food={food} catalogStatus={statusForFood(food.id, entries, verifiedFoodIds)} onPress={() => openFood(food.id)} />)}
+        </Card>
+      </>}
+    </>}
+
+    <Text style={styles.filterLabel}>来源</Text>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+      {catalogSourceFilters.map((item) => {
+        const active = source === item.id;
+        const label = item.id === 'logged' ? `${item.label} ${loggedCount}` : item.label;
+        return <Pressable key={item.id} onPress={() => setSource(item.id)} style={[styles.chip, active && styles.chipActive]}>
+          <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+        </Pressable>;
+      })}
+    </ScrollView>
+    <Text style={styles.filterLabel}>分类</Text>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
       {foodCategories.map((item) => <Pressable key={item.id} onPress={() => setCategory(item.id)} style={[styles.chip, category === item.id && styles.chipActive]}>
         <Text style={[styles.chipText, category === item.id && styles.chipTextActive]}>{item.label}</Text>
       </Pressable>)}
     </ScrollView>
     <Card style={styles.resultsCard}>
-      <View style={styles.resultHeader}><Text style={styles.resultCount}>{results.length} 个结果</Text><Text style={styles.resultMeta}>点击查看份量与来源</Text></View>
-      {results.map((food) => <FoodRow key={food.id} food={food} onPress={() => router.push({ pathname: '/food/[id]', params: { id: food.id } })} />)}
-      {results.length === 0 && <View style={styles.empty}><Text style={styles.emptyTitle}>暂时没有找到</Text><Text style={styles.emptyText}>后续将加入标签OCR和用户提交审核流程。</Text></View>}
+      <View style={styles.resultHeader}><Text style={styles.resultCount}>{results.length} 个结果</Text><Text style={styles.resultMeta}>{catalogueHint(catalogMeta.version)}</Text></View>
+      {results.map((food) => <FoodRow key={food.id} food={food} catalogStatus={statusForFood(food.id, entries, verifiedFoodIds)} onPress={() => openFood(food.id)} />)}
+      {results.length === 0 && <View style={styles.empty}><Text style={styles.emptyTitle}>{emptyTitle(source)}</Text><Text style={styles.emptyText}>{emptyText(source)}</Text></View>}
     </Card>
+    <PrimaryButton label="＋ 创建自定义食品" onPress={() => router.push('/custom-food')} />
   </Screen>;
 }
 
+function catalogueHint(version: string) {
+  return `底库 ${version}`;
+}
+
+function emptyTitle(source: CatalogSourceFilter) {
+  switch (source) {
+    case 'logged': return '图鉴还是空的';
+    case 'supermarket': return '没有超市包装结果';
+    case 'official':
+    case 'overseas': return '没有匹配结果';
+    default: return '暂时没有找到';
+  }
+}
+
+function emptyText(source: CatalogSourceFilter) {
+  switch (source) {
+    case 'logged': return '先记录一餐，对应食物会自动进入图鉴。';
+    case 'supermarket': return '可以搜条码、品牌，或改回来源为“常用”。';
+    case 'official':
+    case 'overseas': return '输入英文名、AFCD 编号或 USDA 关键词。';
+    default: return '可以换个关键词，或创建自定义食品。空白搜索只显示常用食物。';
+  }
+}
+
 const styles = StyleSheet.create({
-  title: { color: colors.ink, fontSize: 28, fontWeight: '800', letterSpacing: -0.7 }, subtitle: { color: colors.inkMuted, fontSize: 13, marginTop: 5 },
+  title: { color: colors.ink, fontSize: 28, fontWeight: '800', letterSpacing: -0.7 }, subtitle: { color: colors.inkMuted, fontSize: 13, marginTop: 5, lineHeight: 19 },
   searchBox: { flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: spacing.lg, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
-  searchIcon: { fontSize: 25, color: colors.brand }, input: { flex: 1, color: colors.ink, fontSize: 15 }, chips: { gap: spacing.sm, paddingRight: spacing.lg },
+  searchIcon: { fontSize: 25, color: colors.brand }, input: { flex: 1, color: colors.ink, fontSize: 15 },
+  sectionLabel: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+  filterLabel: { color: colors.inkMuted, fontSize: 12, fontWeight: '700' },
+  quickRow: { gap: spacing.sm, paddingRight: spacing.lg },
+  quickChip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: radii.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  quickText: { color: colors.ink, fontSize: 14, fontWeight: '700' },
+  quickCustom: { backgroundColor: colors.brandSoft, borderColor: '#C1DBC8' },
+  quickCustomText: { color: colors.brandDark, fontSize: 14, fontWeight: '800' },
+  recipeCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
+  recipeMain: { flex: 1, gap: 4 }, recipeName: { color: colors.ink, fontSize: 16, fontWeight: '800' }, recipeMeta: { color: colors.inkMuted, fontSize: 12, lineHeight: 18 },
+  recipeEnergy: { color: colors.brandDark, fontSize: 11, fontWeight: '700', maxWidth: 108, textAlign: 'right' },
+  link: { color: colors.brand, fontSize: 13, fontWeight: '700' },
+  chips: { gap: spacing.sm, paddingRight: spacing.lg },
   chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radii.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   chipText: { color: colors.inkMuted, fontSize: 13, fontWeight: '600' }, chipTextActive: { color: colors.white }, resultsCard: { paddingTop: spacing.md, paddingBottom: 4 },
   resultHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: spacing.sm }, resultCount: { color: colors.ink, fontSize: 14, fontWeight: '700' },

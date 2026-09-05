@@ -40,10 +40,10 @@ export function SourceBadge({ confidence }: { confidence: 'high' | 'medium' | 'e
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background }, scrollContent: { paddingBottom: 120 },
   screenContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.lg },
-  card: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, ...shadows.card },
+  card: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 0, padding: spacing.lg, ...shadows.card },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionTitle: { fontSize: 20, fontWeight: '700', color: colors.ink, letterSpacing: -0.3 },
-  primaryButton: { minHeight: 52, backgroundColor: colors.brand, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },
+  primaryButton: { minHeight: 54, backgroundColor: colors.brand, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },
   primaryButtonText: { color: colors.white, fontSize: 16, fontWeight: '700' }, pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] }, disabled: { opacity: 0.45 },
   textButton: { color: colors.brand, fontSize: 14, fontWeight: '700' }, textButtonDanger: { color: colors.red },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background, gap: spacing.md }, muted: { color: colors.inkMuted, fontSize: 14 },

@@ -1,13 +1,13 @@
 export const colors = {
-  background: '#F6F8F3', surface: '#FFFFFF', surfaceMuted: '#EDF2EC', ink: '#17211B', inkMuted: '#657068',
-  brand: '#236B4B', brandDark: '#154A34', brandSoft: '#DCECDF', amber: '#B66A12', amberSoft: '#FFF1D8',
-  red: '#B6463A', redSoft: '#FBE6E3', blue: '#2E668C', blueSoft: '#E3EFF7', border: '#D9E0D9', white: '#FFFFFF',
+  background: '#F4F7F1', surface: '#FFFFFF', surfaceMuted: '#EEF3EA', ink: '#1B2A22', inkMuted: '#6B786F',
+  brand: '#1F5C40', brandDark: '#163F2C', brandSoft: '#E4EFE6', amber: '#B66A12', amberSoft: '#FFF1D8',
+  red: '#B6463A', redSoft: '#FBE6E3', blue: '#2E668C', blueSoft: '#E3EFF7', border: '#E0E6DE', white: '#FFFFFF',
 } as const;
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
-export const radii = { sm: 10, md: 16, lg: 24, pill: 999 } as const;
+export const radii = { sm: 12, md: 20, lg: 28, pill: 999 } as const;
 export const shadows = {
-  card: { shadowColor: '#17211B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 2 },
+  card: { shadowColor: '#163F2C', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.06, shadowRadius: 18, elevation: 2 },
 } as const;
 
 // Compatibility aliases retained for the optional Expo template helpers that remain in the project.

@@ -1,73 +1,138 @@
 import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { RingStat } from '@/components/ring-stat';
 import { Card, LoadingScreen, PrimaryButton, Screen, SectionTitle, TextButton } from '@/components/ui';
-import { NutrientProgress } from '@/components/nutrient-progress';
 import { colors, radii, spacing } from '@/constants/theme';
-import { foodsById } from '@/data/foods';
-import { entriesForDate, formatNumber, mealLabels, nextMealSuggestion, totalForEntries } from '@/domain/nutrition';
+import { createFoodIndex } from '@/data/catalog';
+import {
+  closestPortionLabel, displayFoodName, entriesForDate, foodGroupServes, formatEnergy, formatNumber,
+  kcalToKj, latestMealBefore, mealCardsForDate, mealItemNames, mealLabels, nextMealSuggestion, oilLevelLabels,
+  percent, suggestedMealSlot, totalForEntries,
+} from '@/domain/nutrition';
 import { useNutrition } from '@/store/nutrition-store';
+import type { MealType } from '@/types/nutrition';
 
 export default function TodayScreen() {
-  const { entries, profile, hydrated, deleteEntry } = useNutrition();
+  const { entries, profile, customFoods, hydrated, copyMeal } = useNutrition();
   if (!hydrated) return <LoadingScreen />;
   const todayEntries = entriesForDate(entries);
-  const total = totalForEntries(todayEntries);
-  const remaining = Math.max(0, profile.targets.energyKcal - total.energyKcal);
-  const recent = [...todayEntries].reverse().slice(0, 3);
-  const date = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date());
+  const foodIndex = createFoodIndex(customFoods);
+  const total = totalForEntries(todayEntries, foodIndex);
+  const groups = foodGroupServes(todayEntries, foodIndex);
+  const cards = mealCardsForDate(todayEntries);
+  const slot = suggestedMealSlot();
+  const lastMeal = latestMealBefore(entries, slot);
+  const now = new Date();
+  const hour = now.getHours();
+  const hello = hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好';
+  const date = new Intl.DateTimeFormat('en-AU', { weekday: 'short', month: 'short', day: 'numeric' }).format(now);
+  const energyShare = percent(total.energyKcal, profile.targets.energyKcal);
+  const carbTarget = Math.round(profile.targets.energyKcal * 0.5 / 4);
+  const fatTarget = Math.round(profile.targets.energyKcal * 0.3 / 9);
 
   return <Screen>
     <View style={styles.header}>
-      <View><Text style={styles.eyebrow}>{date}</Text><Text style={styles.title}>你好，{profile.firstName}</Text></View>
-      <View style={styles.logo}><Text style={styles.logoText}>食衡</Text></View>
+      <View>
+        <Text style={styles.greeting}>{hello}，{profile.firstName.trim() || '朋友'}</Text>
+        <Text style={styles.eyebrow}>{date}</Text>
+      </View>
+      <Pressable onPress={() => router.push('/recipes')} style={styles.logo}><Text style={styles.logoText}>食衡</Text></Pressable>
     </View>
 
     <Card style={styles.heroCard}>
-      <Text style={styles.heroLabel}>今日还可安排</Text>
-      <View style={styles.energyRow}><Text style={styles.energy}>{formatNumber(remaining)}</Text><Text style={styles.energyUnit}>kcal</Text></View>
-      <Text style={styles.heroMeta}>已记录 {formatNumber(total.energyKcal)} / {formatNumber(profile.targets.energyKcal)} kcal</Text>
-      <View style={styles.heroTrack}><View style={[styles.heroFill, { width: `${Math.min(100, total.energyKcal / profile.targets.energyKcal * 100)}%` }]} /></View>
-    </Card>
-
-    <Card style={styles.progressCard}>
-      <NutrientProgress label="蛋白质" value={total.proteinG} target={profile.targets.proteinG} unit="g" />
-      <NutrientProgress label="膳食纤维" value={total.fibreG} target={profile.targets.fibreG} unit="g" tone="blue" />
-      <NutrientProgress label="钠" value={total.sodiumMg} target={profile.targets.sodiumMg} unit="mg" tone="amber" />
+      <Text style={styles.heroLabel}>能量</Text>
+      <View style={styles.energyRow}>
+        <View>
+          <Text style={styles.energy}>{formatNumber(kcalToKj(total.energyKcal))}</Text>
+          <Text style={styles.energyUnit}>kJ</Text>
+        </View>
+        <View style={styles.heroShare}><Text style={styles.heroShareValue}>{formatNumber(energyShare, 0)}%</Text><Text style={styles.heroShareLabel}>今日目标</Text></View>
+      </View>
+      <Text style={styles.heroMeta}>{formatNumber(total.energyKcal)} kcal · 目标 {formatEnergy(profile.targets.energyKcal, profile.energyUnit)}</Text>
+      <View style={styles.rings}>
+        <RingStat label="蛋白质" value={total.proteinG} target={profile.targets.proteinG} unit="%" />
+        <RingStat label="碳水" value={total.carbsG} target={carbTarget} unit="%" tone="blue" />
+        <RingStat label="脂肪" value={total.fatG} target={fatTarget} unit="%" tone="amber" />
+      </View>
     </Card>
 
     <Card style={styles.suggestionCard}>
       <Text style={styles.suggestionKicker}>下一餐建议</Text>
-      <Text style={styles.suggestion}>{nextMealSuggestion(total, profile.targets)}</Text>
-      <Text style={styles.disclaimer}>基于一般健康目标，仅供日常参考，不用于疾病诊断或治疗。</Text>
+      <Text style={styles.suggestion}>{nextMealSuggestion(total, profile.targets, groups)}</Text>
+      <Text style={styles.disclaimer}>估算值，仅供日常参考，不用于疾病诊断或治疗。</Text>
     </Card>
+
+    {lastMeal ? <Card style={styles.repeatCard}>
+      <Text style={styles.repeatTitle}>再记上次{mealLabels[slot]}</Text>
+      <Text style={styles.repeatMeta}>{mealItemNames(lastMeal.entries, foodIndex) || '上次这顿'} · {lastMeal.dateKey}</Text>
+      <TextButton label="10 秒复用到今天" onPress={() => copyMeal(slot, lastMeal.dateKey)} />
+    </Card> : null}
 
     <PrimaryButton label="＋ 记录这一餐" onPress={() => router.push('/(tabs)/search')} />
 
-    <SectionTitle action={<TextButton label="查看全部" onPress={() => router.push('/(tabs)/log')} />}>最近记录</SectionTitle>
-    <Card style={styles.recentCard}>
-      {recent.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>今天还没有记录</Text><Text style={styles.emptyText}>从搜索常吃食物开始，首版目标是在30秒内记完一餐。</Text></View> : recent.map((entry, index) => {
-        const food = foodsById[entry.foodId];
-        if (!food) return null;
-        return <View key={entry.id} style={[styles.recentRow, index < recent.length - 1 && styles.recentBorder]}>
-          <View style={styles.recentMain}><Text style={styles.recentName}>{food.nameZh}</Text><Text style={styles.recentMeta}>{mealLabels[entry.meal]} · {entry.servings}份</Text></View>
-          <TextButton label="移除" tone="danger" onPress={() => deleteEntry(entry.id)} />
-        </View>;
-      })}
-    </Card>
+    <SectionTitle action={<TextButton label="查看全部" onPress={() => router.push('/(tabs)/log')} />}>今日餐次</SectionTitle>
+    {(['breakfast', 'lunch', 'dinner', 'snack'] as MealType[]).map((meal) => {
+      const mealCards = cards.filter((card) => card.meal === meal);
+      const mealEntries = todayEntries.filter((entry) => entry.meal === meal);
+      const mealTotal = totalForEntries(mealEntries, foodIndex);
+      return <Card key={meal} style={styles.mealCard}>
+        <View style={styles.mealHeader}>
+          <Text style={styles.mealTitle}>{mealLabels[meal]}</Text>
+          <Text style={styles.mealEnergy}>{mealEntries.length ? formatEnergy(mealTotal.energyKcal, profile.energyUnit) : '未记录'}</Text>
+        </View>
+        {mealCards.length === 0 ? <Text style={styles.emptyText}>还没有记录</Text> : mealCards.map((card) => (
+          <Text key={card.id} style={styles.mealFoods}>{mealItemNames(card.entries, foodIndex)}</Text>
+        ))}
+        {mealEntries.some((entry) => (entry.sharedWith ?? 1) > 1) ? (
+          <Text style={styles.shareNote}>
+            {mealEntries.filter((entry) => (entry.sharedWith ?? 1) > 1).map((entry) => {
+              const food = foodIndex[entry.foodId];
+              const people = entry.sharedWith ?? 1;
+              return food ? `${displayFoodName(food)} ${people}人 · ${closestPortionLabel(entry.portionShare ?? 1 / people)}` : null;
+            }).filter(Boolean).join('；')}
+          </Text>
+        ) : null}
+        {mealEntries.some((entry) => entry.oilLevel && entry.oilLevel !== 'normal') ? (
+          <Text style={styles.shareNote}>
+            {mealEntries.filter((entry) => entry.oilLevel && entry.oilLevel !== 'normal').map((entry) => {
+              const food = foodIndex[entry.foodId];
+              return food && entry.oilLevel ? `${displayFoodName(food)} · ${oilLevelLabels[entry.oilLevel]}` : null;
+            }).filter(Boolean).join('；')}
+          </Text>
+        ) : null}
+      </Card>;
+    })}
   </Screen>;
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, eyebrow: { color: colors.inkMuted, fontSize: 13, marginBottom: 4 },
-  title: { color: colors.ink, fontSize: 28, fontWeight: '800', letterSpacing: -0.7 }, logo: { backgroundColor: colors.brand, borderRadius: radii.pill, paddingHorizontal: 13, paddingVertical: 9 },
-  logoText: { color: colors.white, fontSize: 13, fontWeight: '800' }, heroCard: { backgroundColor: colors.brandDark, borderColor: colors.brandDark },
-  heroLabel: { color: '#CDE4D6', fontSize: 13, fontWeight: '600' }, energyRow: { flexDirection: 'row', alignItems: 'baseline', gap: 7, marginTop: 2 },
-  energy: { color: colors.white, fontSize: 44, fontWeight: '800', letterSpacing: -1.5 }, energyUnit: { color: '#CDE4D6', fontSize: 15, fontWeight: '700' },
-  heroMeta: { color: '#CDE4D6', fontSize: 12 }, heroTrack: { height: 7, borderRadius: radii.pill, backgroundColor: '#356D54', overflow: 'hidden', marginTop: spacing.md },
-  heroFill: { height: '100%', backgroundColor: '#A8D5B8', borderRadius: radii.pill }, progressCard: { gap: spacing.lg }, suggestionCard: { backgroundColor: colors.brandSoft, borderColor: '#C1DBC8' },
-  suggestionKicker: { color: colors.brand, fontSize: 12, fontWeight: '800', marginBottom: spacing.sm }, suggestion: { color: colors.ink, fontSize: 17, lineHeight: 26, fontWeight: '600' },
-  disclaimer: { color: colors.inkMuted, fontSize: 11, lineHeight: 17, marginTop: spacing.md }, recentCard: { paddingVertical: 4 }, recentRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md },
-  recentBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }, recentMain: { flex: 1, gap: 3 }, recentName: { color: colors.ink, fontSize: 15, fontWeight: '700' },
-  recentMeta: { color: colors.inkMuted, fontSize: 12 }, empty: { paddingVertical: spacing.xl, alignItems: 'center', gap: spacing.sm }, emptyTitle: { color: colors.ink, fontSize: 16, fontWeight: '700' },
-  emptyText: { color: colors.inkMuted, fontSize: 13, lineHeight: 20, textAlign: 'center', maxWidth: 280 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  greeting: { color: colors.ink, fontSize: 28, fontWeight: '800', letterSpacing: -0.7 },
+  eyebrow: { color: colors.inkMuted, fontSize: 13, marginTop: 4 },
+  logo: { backgroundColor: colors.brand, borderRadius: radii.md, paddingHorizontal: 14, paddingVertical: 10 },
+  logoText: { color: colors.white, fontSize: 13, fontWeight: '800' },
+  heroCard: { gap: spacing.md },
+  heroLabel: { color: colors.inkMuted, fontSize: 13, fontWeight: '600' },
+  energyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  energy: { color: colors.ink, fontSize: 40, fontWeight: '800', letterSpacing: -1.4 },
+  energyUnit: { color: colors.inkMuted, fontSize: 16, fontWeight: '700', marginTop: 2 },
+  heroShare: { alignItems: 'flex-end', gap: 2 },
+  heroShareValue: { color: colors.brand, fontSize: 22, fontWeight: '800' },
+  heroShareLabel: { color: colors.inkMuted, fontSize: 11 },
+  heroMeta: { color: colors.inkMuted, fontSize: 12 },
+  rings: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  suggestionCard: { backgroundColor: colors.brandSoft, borderColor: '#C1DBC8' },
+  suggestionKicker: { color: colors.brand, fontSize: 12, fontWeight: '800', marginBottom: spacing.sm },
+  suggestion: { color: colors.ink, fontSize: 16, lineHeight: 24, fontWeight: '600' },
+  disclaimer: { color: colors.inkMuted, fontSize: 11, lineHeight: 17, marginTop: spacing.md },
+  repeatCard: { backgroundColor: colors.amberSoft, borderColor: '#E9CF9E', gap: spacing.sm },
+  repeatTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
+  repeatMeta: { color: colors.inkMuted, fontSize: 13, lineHeight: 20 },
+  mealCard: { gap: 6 },
+  mealHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  mealTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
+  mealEnergy: { color: colors.inkMuted, fontSize: 12, fontWeight: '600' },
+  mealFoods: { color: colors.ink, fontSize: 14, lineHeight: 22 },
+  shareNote: { color: colors.inkMuted, fontSize: 11, lineHeight: 17 },
+  emptyText: { color: colors.inkMuted, fontSize: 13 },
 });

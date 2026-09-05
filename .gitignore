@@ -29,6 +29,13 @@ venv/
 *.key
 *.mobileprovision
 credentials.json
+**/credentials/
+mobile/tmp-apk/
+mobile/release/
+
+# Local agent artifacts and screenshots
+ops/
+/Codex*.png
 
 # Logs
 *.log

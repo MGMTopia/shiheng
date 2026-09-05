@@ -11,6 +11,13 @@
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "au.shiheng.app",
+      "versionCode": 1,
+      "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E8F3EC",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -18,6 +25,14 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
     },
     "web": {
       "output": "static",
@@ -32,8 +47,12 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      "./plugins/with-android-data-cleanup"
     ],
+    "extra": {
+      "releaseChannel": "closed-trial"
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

@@ -11,6 +11,11 @@ expo-env.d.ts
 
 # Native
 .kotlin/
+/android
+/ios
+/release
+/tmp-apk
+/credentials/
 *.orig.*
 *.jks
 *.p8
@@ -43,6 +48,5 @@ yarn-error.*
 
 example
 
-# generated native folders
-/ios
-/android
+# local official data downloads (generated JSON is committed)
+/data-raw/
