@@ -8,7 +8,7 @@ import type { LocalMetricName, LocalMetrics } from '@/services/local-metrics';
 const labels: Record<LocalMetricName, string> = {
   app_opened: '应用打开', search_used: '完成搜索', search_empty: '搜索无结果', food_opened: '查看食物', entry_added: '添加记录',
   entry_deleted: '删除记录', entry_copied: '复制记录', meal_copied: '复制整餐', recipe_saved: '保存家庭菜谱', recipe_logged: '记录套餐', custom_food_created: '创建自定义食品', favourite_toggled: '切换收藏',
-  onboarding_completed: '完成首次引导', feedback_saved: '保存反馈', storage_recovery: '存储恢复', food_verified: '本机核对食物',
+  onboarding_completed: '完成首次引导', feedback_saved: '保存反馈', storage_recovery: '存储恢复', storage_write_failed: '存储写入失败', food_verified: '本机核对食物',
 };
 
 export default function MetricsScreen() {

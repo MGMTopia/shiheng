@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radii, shadows, spacing } from '@/constants/theme';
 
 export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?: boolean }>) {
-  const content = <View style={styles.screenContent}>{children}</View>;
+  const content = <View style={[styles.screenContent, !scroll && styles.fill]}>{children}</View>;
   return <SafeAreaView edges={['top']} style={styles.safeArea}>{scroll
     ? <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>{content}</ScrollView>
     : content}</SafeAreaView>;
@@ -40,6 +40,7 @@ export function SourceBadge({ confidence }: { confidence: 'high' | 'medium' | 'e
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background }, scrollContent: { paddingBottom: 120 },
   screenContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.lg },
+  fill: { flex: 1, minHeight: 0, paddingBottom: spacing.md },
   card: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 0, padding: spacing.lg, ...shadows.card },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionTitle: { fontSize: 20, fontWeight: '700', color: colors.ink, letterSpacing: -0.3 },

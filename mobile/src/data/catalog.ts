@@ -15,9 +15,20 @@ export const catalogSourceFilters: { id: CatalogSourceFilter; label: string }[] 
 ];
 
 const clusterOf = buildClusterIndex(foods);
+const catalogFoodIndex: Record<string, Food> = Object.fromEntries(foods.map((food) => [food.id, food]));
+const foodIndexCache = new WeakMap<Food[], Record<string, Food>>();
+
+export const SEARCH_PAGE_SIZE = 30;
+export const SEARCH_MAX_RESULTS = 80;
 
 export function createFoodIndex(customFoods: Food[] = []): Record<string, Food> {
-  return Object.fromEntries([...foods, ...customFoods].map((food) => [food.id, food]));
+  if (!customFoods.length) return catalogFoodIndex;
+  const cached = foodIndexCache.get(customFoods);
+  if (cached) return cached;
+  const index = { ...catalogFoodIndex };
+  for (const food of customFoods) index[food.id] = food;
+  foodIndexCache.set(customFoods, index);
+  return index;
 }
 
 export function mergedFoodCatalog(customFoods: Food[] = []): Food[] {
@@ -68,10 +79,11 @@ export function searchCatalog(options: {
   supermarketOnly?: boolean;
   officialOnly?: boolean;
   overseasOnly?: boolean;
+  limit?: number;
 }): Food[] {
   const {
     customFoods = [], query = '', category = 'all', favouriteFoodIds = [],
-    entries = [], verifiedFoodIds = [],
+    entries = [], verifiedFoodIds = [], limit = SEARCH_PAGE_SIZE,
   } = options;
   const source = resolveSource(options);
   const logged = new Set(loggedFoodIds(entries));
@@ -106,7 +118,8 @@ export function searchCatalog(options: {
     return delta !== 0 ? delta : a.nameEn.localeCompare(b.nameEn);
   });
 
-  return needle.length > 0 || browseAll ? results.slice(0, 80) : results;
+  const pageSize = Math.min(Math.max(1, limit), SEARCH_MAX_RESULTS);
+  return needle.length > 0 || browseAll ? results.slice(0, pageSize) : results;
 }
 
 export function statusForFood(foodId: string, entries: FoodLogEntry[], verifiedFoodIds: string[]): CatalogStatus {

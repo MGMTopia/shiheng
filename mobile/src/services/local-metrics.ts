@@ -19,6 +19,7 @@ export type LocalMetricName =
   | 'onboarding_completed'
   | 'feedback_saved'
   | 'storage_recovery'
+  | 'storage_write_failed'
   | 'food_verified';
 
 export type LocalMetrics = {

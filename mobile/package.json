@@ -29,6 +29,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~57.0.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -42,7 +44,7 @@
     "test:domain": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/domain-tests.mjs",
     "import:catalog": "python scripts/import-official-catalog.py",
     "typecheck": "tsc --noEmit",
-    "ci": "pnpm typecheck && pnpm test:domain && pnpm export:web",
+    "ci": "pnpm typecheck && pnpm lint && pnpm test:domain && pnpm export:web",
     "brand:rasterize": "python scripts/rasterize-brand.py"
   },
   "private": true

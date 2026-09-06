@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { BrandMarkTile } from '@/components/brand-mark';
 import { Card, PrimaryButton, Screen } from '@/components/ui';
@@ -20,10 +20,8 @@ const principles = [
 export default function OnboardingScreen() {
   const { hydrated, profile, updateProfile } = useNutrition();
   const [saving, setSaving] = useState(false);
-  const [energyUnit, setEnergyUnit] = useState<EnergyUnit>(profile.energyUnit);
-  useEffect(() => {
-    if (hydrated) setEnergyUnit(profile.energyUnit);
-  }, [hydrated, profile.energyUnit]);
+  const [energyOverride, setEnergyOverride] = useState<EnergyUnit | null>(null);
+  const energyUnit = energyOverride ?? profile.energyUnit;
 
   const start = async () => {
     if (!hydrated) return;
@@ -59,8 +57,8 @@ export default function OnboardingScreen() {
       <Text style={styles.unitTitle}>你更习惯哪种能量单位？</Text>
       <Text style={styles.unitHint}>澳洲包装常用 kJ，习惯卡路里也可以。之后可在「我的」里改。</Text>
       <View style={styles.unitRow}>
-        <Pressable onPress={() => setEnergyUnit('kj')} style={[styles.unitChip, energyUnit === 'kj' && styles.unitChipActive]}><Text style={[styles.unitChipText, energyUnit === 'kj' && styles.unitChipTextActive]}>kJ（推荐）</Text></Pressable>
-        <Pressable onPress={() => setEnergyUnit('kcal')} style={[styles.unitChip, energyUnit === 'kcal' && styles.unitChipActive]}><Text style={[styles.unitChipText, energyUnit === 'kcal' && styles.unitChipTextActive]}>kcal</Text></Pressable>
+        <Pressable onPress={() => setEnergyOverride('kj')} style={[styles.unitChip, energyUnit === 'kj' && styles.unitChipActive]}><Text style={[styles.unitChipText, energyUnit === 'kj' && styles.unitChipTextActive]}>kJ（推荐）</Text></Pressable>
+        <Pressable onPress={() => setEnergyOverride('kcal')} style={[styles.unitChip, energyUnit === 'kcal' && styles.unitChipActive]}><Text style={[styles.unitChipText, energyUnit === 'kcal' && styles.unitChipTextActive]}>kcal</Text></Pressable>
       </View>
     </Card>
 

@@ -1,28 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { CustomFood, CustomFoodDraft, FoodLogEntry, MealType, OilLevel, Recipe, UserProfile } from '@/types/nutrition';
 import { findRecipe } from '@/data/recipes';
 import { localDateKey } from '@/domain/nutrition';
+import {
+  STORAGE_KEY,
+  createSerialWriter,
+  defaultProfile,
+  emptySnapshot,
+  parsePersistedState,
+  serializePersistedState,
+} from '@/domain/persisted-state';
 import { incrementLocalMetric } from '@/services/local-metrics';
 
-const STORAGE_KEY = '@shiheng/state/v1';
-const STATE_VERSION = 4;
-
-export const defaultProfile: UserProfile = {
-  firstName: '朋友',
-  energyUnit: 'kj',
-  targets: { energyKcal: 2000, proteinG: 90, fibreG: 30, sodiumMg: 2000, vegetableServes: 5, grainServes: 6, proteinServes: 3 },
-};
-
-type PersistedPayload = {
-  stateVersion?: number;
-  entries?: FoodLogEntry[];
-  profile?: Partial<UserProfile> & { targets?: Partial<UserProfile['targets']> };
-  customFoods?: CustomFood[];
-  favouriteFoodIds?: string[];
-  verifiedFoodIds?: string[];
-  recipes?: Recipe[];
-};
+export { defaultProfile };
 
 export type AddEntryInput = {
   foodId: string;
@@ -62,20 +53,6 @@ function newId(prefix = ''): string {
   return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function migrateProfile(profile?: PersistedPayload['profile']): UserProfile {
-  return {
-    firstName: profile?.firstName?.trim() || defaultProfile.firstName,
-    energyUnit: profile?.energyUnit === 'kcal' ? 'kcal' : 'kj',
-    targets: {
-      ...defaultProfile.targets,
-      ...profile?.targets,
-      vegetableServes: profile?.targets?.vegetableServes ?? defaultProfile.targets.vegetableServes,
-      grainServes: profile?.targets?.grainServes ?? defaultProfile.targets.grainServes,
-      proteinServes: profile?.targets?.proteinServes ?? defaultProfile.targets.proteinServes,
-    },
-  };
-}
-
 export function NutritionProvider({ children }: PropsWithChildren) {
   const [entries, setEntries] = useState<FoodLogEntry[]>([]);
   const [profile, setProfile] = useState<UserProfile>(defaultProfile);
@@ -84,24 +61,43 @@ export function NutritionProvider({ children }: PropsWithChildren) {
   const [verifiedFoodIds, setVerifiedFoodIds] = useState<string[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const writer = useRef(createSerialWriter((value) => AsyncStorage.setItem(STORAGE_KEY, value)));
 
   useEffect(() => {
+    let active = true;
     AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as PersistedPayload;
-      if (Array.isArray(parsed.entries)) setEntries(parsed.entries);
-      if (parsed.profile) setProfile(migrateProfile(parsed.profile));
-      if (Array.isArray(parsed.customFoods)) setCustomFoods(parsed.customFoods);
-      if (Array.isArray(parsed.favouriteFoodIds)) setFavouriteFoodIds(parsed.favouriteFoodIds);
-      if (Array.isArray(parsed.verifiedFoodIds)) setVerifiedFoodIds(parsed.verifiedFoodIds);
-      if (Array.isArray(parsed.recipes)) setRecipes(parsed.recipes);
-    }).catch(() => { incrementLocalMetric('storage_recovery').catch(() => undefined); }).finally(() => setHydrated(true));
+      const restored = parsePersistedState(raw);
+      if (!active) return;
+      setEntries(restored.snapshot.entries);
+      setProfile(restored.snapshot.profile);
+      setCustomFoods(restored.snapshot.customFoods);
+      setFavouriteFoodIds(restored.snapshot.favouriteFoodIds);
+      setVerifiedFoodIds(restored.snapshot.verifiedFoodIds);
+      setRecipes(restored.snapshot.recipes);
+      if (restored.error || restored.dropped.entries || restored.dropped.customFoods || restored.dropped.recipes) {
+        incrementLocalMetric('storage_recovery').catch(() => undefined);
+      }
+    }).catch(() => {
+      incrementLocalMetric('storage_recovery').catch(() => undefined);
+    }).finally(() => {
+      if (active) setHydrated(true);
+    });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    if (hydrated) AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
-      stateVersion: STATE_VERSION, entries, profile, customFoods, favouriteFoodIds, verifiedFoodIds, recipes,
-    })).catch(() => undefined);
+    if (!hydrated) return;
+    writer.current.enqueue(serializePersistedState({
+      ...emptySnapshot(),
+      entries,
+      profile,
+      customFoods,
+      favouriteFoodIds,
+      verifiedFoodIds,
+      recipes,
+    })).catch(() => {
+      incrementLocalMetric('storage_write_failed').catch(() => undefined);
+    });
   }, [entries, profile, customFoods, favouriteFoodIds, verifiedFoodIds, recipes, hydrated]);
 
   const value = useMemo<NutritionStore>(() => ({

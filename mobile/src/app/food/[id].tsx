@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Card, PrimaryButton, Screen, SourceBadge, TextButton } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
@@ -28,7 +28,11 @@ export default function FoodDetailScreen() {
   const members = useMemo(() => foodCluster(id, customFoods), [customFoods, id]);
   const defaultId = useMemo(() => (members.length ? pickRepresentative(members).id : id), [id, members]);
   const [activeId, setActiveId] = useState(defaultId);
-  useEffect(() => { setActiveId(defaultId); }, [defaultId]);
+  const [seenDefaultId, setSeenDefaultId] = useState(defaultId);
+  if (seenDefaultId !== defaultId) {
+    setSeenDefaultId(defaultId);
+    setActiveId(defaultId);
+  }
   const food = foodIndex[activeId] ?? foodIndex[id];
   const [servings, setServings] = useState(1);
   const [meal, setMeal] = useState<MealType>(() => suggestedMealSlot());
@@ -38,12 +42,9 @@ export default function FoodDetailScreen() {
   const showOil = food ? foodSupportsOilLevel(food) : false;
   const titleFood = members.find((item) => /[\u4e00-\u9fff]/.test(item.nameZh) && item.nameZh !== item.nameEn) ?? food;
   const sources = useMemo(() => members.slice().sort((a, b) => sourcePriority(b) - sourcePriority(a)), [members]);
-  const nutrients = useMemo(() => {
-    if (!food) return null;
-    const base = nutrientsForServing(food, servings);
-    const oiled = applyOilLevel(base, oilLevel, showOil);
-    return scaleNutrients(oiled, portionShare);
-  }, [food, oilLevel, portionShare, servings, showOil]);
+  const nutrients = food
+    ? scaleNutrients(applyOilLevel(nutrientsForServing(food, servings), oilLevel, showOil), portionShare)
+    : null;
 
   if (!food || !nutrients) return <Screen><Card><Text style={styles.notFound}>找不到这条食物记录。</Text></Card></Screen>;
   const status = statusForFood(food.id, entries, verifiedFoodIds);

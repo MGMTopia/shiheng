@@ -113,7 +113,7 @@ assert.ok(foods.some((food) => food.source.dataset === 'fsanz-afcd'), '应包含
 assert.ok(foods.some((food) => food.source.dataset === 'usda-fdc'), '应包含 USDA 海外对照');
 assert.ok(foodsById['ausnut-29101001'].nutrientsPer100g.fibreG < 5, '啤酒纤维不应被能量列误映射');
 assert.ok(catalog.searchCatalog({}).length < 200, '空白搜索只应返回常用食物');
-assert.ok(catalog.searchCatalog({ officialOnly: true }).length <= 80, '官方库搜索应分页');
+assert.ok(catalog.searchCatalog({ officialOnly: true }).length <= 30, '官方库搜索应分页');
 assert.ok(catalog.searchCatalog({ query: 'milk' }).some((food) => food.tags.includes('fsanz')), 'milk 应命中 FSANZ 条目');
 assert.ok(foodsById['char-siu-rice'], '应包含叉烧饭');
 assert.ok(foodsById['egg-boiled'], '应包含水煮蛋');
@@ -217,7 +217,7 @@ for (const [id, composition] of Object.entries(compositions.dishCompositions)) {
 
 assert.ok(recipes.starterRecipes.every((recipe) => recipe.items.length >= 2), '套餐应包含不止一道菜');
 assert.ok(!('composition' in recipes.starterRecipes[0]), '套餐不是单道复合菜');
-assert.ok(catalog.searchCatalog({ source: 'official' }).length <= 80, '来源筛选澳洲官方应分页');
+assert.ok(catalog.searchCatalog({ source: 'official' }).length <= 30, '来源筛选澳洲官方应分页');
 assert.ok(catalog.searchCatalog({ source: 'common' }).length < 200, '常用来源空白搜索只返回常用食物');
 const bokChoyNamed = foods.filter((food) => food.nameZh === '清炒小白菜');
 assert.ok(bokChoyNamed.length >= 1 && bokChoyNamed.length <= 8, '清炒小白菜应只覆盖小白菜/bok choy');
@@ -228,4 +228,57 @@ assert.equal(nutrition.catalogStatus('banana', ['apple'], []), 'unseen');
 
 assert.deepEqual(validation.validateFoodCatalog(foods), [], '开发食品目录应通过基础质量检查');
 
-console.log('Domain checks passed: nutrition math, shared meals, recipes vs foods, sources, and catalog quality.');
+const persist = await import('../src/domain/persisted-state.ts');
+assert.equal(persist.parsePersistedState(null).snapshot.entries.length, 0, '空存储应得到默认快照');
+assert.equal(persist.parsePersistedState('{').error, 'invalid-json', '损坏 JSON 应标记恢复');
+assert.equal(persist.parsePersistedState('[]').error, 'not-object', '非对象 JSON 应标记恢复');
+
+const legacy = persist.parsePersistedState(JSON.stringify({
+  entries: [
+    { id: 'ok', foodId: 'apple', servings: 1, meal: 'lunch', recordedAt: '2026-09-06T00:00:00.000Z' },
+    { id: 'bad', foodId: 'apple', servings: '1', meal: 'lunch' },
+  ],
+  profile: { firstName: ' 李 ', energyUnit: 'kcal', targets: { energyKcal: 1800 } },
+  favouriteFoodIds: ['apple', '', 3],
+}));
+assert.equal(legacy.migratedFrom, 0, '缺版本号应按 v0 迁移');
+assert.equal(legacy.snapshot.stateVersion, persist.STATE_VERSION, '恢复后应写成当前版本');
+assert.equal(legacy.snapshot.entries.length, 1, '无效日记条目应丢弃');
+assert.equal(legacy.dropped.entries, 1, '应记录丢弃的日记条数');
+assert.equal(legacy.snapshot.profile.firstName, '李', '资料应清洗空白');
+assert.equal(legacy.snapshot.profile.energyUnit, 'kcal', '旧资料能量单位应保留');
+assert.equal(legacy.snapshot.profile.targets.vegetableServes, 5, '缺份数目标应补默认值');
+assert.deepEqual(legacy.snapshot.favouriteFoodIds, ['apple'], '无效收藏 id 应丢弃');
+assert.equal(legacy.dropped.ids, 2, '应记录丢弃的 id 数量');
+
+const current = persist.parsePersistedState(persist.serializePersistedState(legacy.snapshot));
+assert.equal(current.migratedFrom, persist.STATE_VERSION, '当前版本再读不应当旧数据迁移');
+assert.equal(current.snapshot.entries[0].foodId, 'apple');
+
+let released;
+const gate = new Promise((resolve) => { released = resolve; });
+let startedFirst;
+const started = new Promise((resolve) => { startedFirst = resolve; });
+const writes = [];
+const writer = persist.createSerialWriter(async (value) => {
+  if (value === 'one') {
+    startedFirst();
+    await gate;
+  }
+  writes.push(value);
+  if (value === 'fail') throw new Error('disk full');
+});
+const firstWrite = writer.enqueue('one');
+await started;
+void writer.enqueue('two');
+const lastWrite = writer.enqueue('three');
+released();
+await lastWrite;
+await firstWrite;
+assert.deepEqual(writes, ['one', 'three'], '连续写入应串行且只保留最新快照');
+
+await assert.rejects(() => writer.enqueue('fail'), /disk full/, '写入失败应暴露给调用方');
+await writer.enqueue('recovered');
+assert.equal(writes.at(-1), 'recovered', '失败后队列应能继续写入');
+
+console.log('Domain checks passed: nutrition math, shared meals, recipes vs foods, sources, catalog quality, and persistence.');
