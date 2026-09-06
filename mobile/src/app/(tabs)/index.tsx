@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { BrandMarkTile } from '@/components/brand-mark';
 import { RingStat } from '@/components/ring-stat';
 import { Card, LoadingScreen, PrimaryButton, Screen, SectionTitle, TextButton } from '@/components/ui';
-import { colors, radii, spacing } from '@/constants/theme';
+import { colors, spacing } from '@/constants/theme';
 import { createFoodIndex } from '@/data/catalog';
 import {
   closestPortionLabel, displayFoodName, entriesForDate, foodGroupServes, formatEnergy, formatNumber,
@@ -36,7 +37,7 @@ export default function TodayScreen() {
         <Text style={styles.greeting}>{hello}，{profile.firstName.trim() || '朋友'}</Text>
         <Text style={styles.eyebrow}>{date}</Text>
       </View>
-      <Pressable onPress={() => router.push('/recipes')} style={styles.logo}><Text style={styles.logoText}>食衡</Text></Pressable>
+      <Pressable onPress={() => router.push('/recipes')} accessibilityLabel="家庭菜谱"><BrandMarkTile size={40} /></Pressable>
     </View>
 
     <Card style={styles.heroCard}>
@@ -109,8 +110,6 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   greeting: { color: colors.ink, fontSize: 28, fontWeight: '800', letterSpacing: -0.7 },
   eyebrow: { color: colors.inkMuted, fontSize: 13, marginTop: 4 },
-  logo: { backgroundColor: colors.brand, borderRadius: radii.md, paddingHorizontal: 14, paddingVertical: 10 },
-  logoText: { color: colors.white, fontSize: 13, fontWeight: '800' },
   heroCard: { gap: spacing.md },
   heroLabel: { color: colors.inkMuted, fontSize: 13, fontWeight: '600' },
   energyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },

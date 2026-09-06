@@ -1,4 +1,5 @@
 import type { AlternateSource, CatalogSourceFilter, Food } from '@/types/nutrition';
+import { translateOfficialName } from '@/domain/en-zh';
 
 export type PresentedFood = Food & { alternateSources: AlternateSource[] };
 
@@ -8,11 +9,29 @@ const STOP = new Set([
   'piece', 'serve', 'small', 'medium', 'large', 'regular', 'unpeeled', 'peeled', 'refrigerated',
   'shelf', 'stable', 'natural', 'containing', 'made', 'into', 'per', 'cent', 'skin',
   'hard', 'whole', 'fluid', 'chicken', 'cows', 'cow', 'cattle', 'unflavoured', 'original',
+  'not', 'further', 'defined',
 ]);
 
 const ALLOW_EXTRA = new Set([
   'chicken', 'cow', 'cattle', 'whole', 'fluid', 'skin', 'unsalted',
 ]);
+
+const VARIETY = new Set([
+  'fuji', 'gala', 'granny', 'smith', 'delicious', 'honeycrisp', 'bonza', 'jonathan', 'jonathon',
+  'pink', 'lady', 'cavendish', 'golden', 'red', 'green', 'yellow', 'honey', 'crisp', 'royal', 'deliciou',
+  'organic', 'lactose', 'vitamin', 'vitamins', 'mineral', 'minerals', 'phytosterol', 'phytosterols',
+  'omega', 'polyunsaturated', 'polyunsaturate', 'enriched', 'fortified', 'free',
+]);
+
+const COOKING = new Set([
+  'stir', 'fry', 'fried', 'boiled', 'steamed', 'grilled', 'baked', 'roasted', 'poached',
+  'scrambled', 'mashed',
+]);
+
+const PROCESS_ZH: Record<string, string> = {
+  juice: '汁', dried: '干', canned: '罐头', baked: '烤', stewed: '炖', puree: '泥',
+  fried: '煎', boiled: '煮', steamed: '蒸', grilled: '烤', roasted: '烤',
+};
 
 function prepareName(name: string, brand?: string): string {
   let value = ` ${name.toLowerCase()} `;
@@ -33,10 +52,20 @@ export function itemTokens(food: Pick<Food, 'nameEn' | 'brand'>): Set<string> {
   const prepared = prepareName(food.nameEn, food.brand);
   const tokens = new Set<string>();
   for (const part of prepared.match(/[a-z]{3,}/g) ?? []) {
-    if (STOP.has(part)) continue;
-    tokens.add(stem(part));
+    if (STOP.has(part) || VARIETY.has(part)) continue;
+    const stemmed = stem(part);
+    if (STOP.has(stemmed) || VARIETY.has(stemmed)) continue;
+    tokens.add(stemmed);
   }
   return tokens;
+}
+
+export function familyKey(food: Food): string | null {
+  if (food.composition) return null;
+  const tokens = [...itemTokens(food)].filter((token) => !VARIETY.has(token)).sort();
+  const identity = tokens.filter((token) => !COOKING.has(token));
+  if (identity.length === 0) return null;
+  return `${food.category}:${tokens.join('+')}`;
 }
 
 export function sameCatalogItem(a: Food, b: Food): boolean {
@@ -101,6 +130,41 @@ export function sanitizeInheritedNames(foods: Food[]): Food[] {
       nameZh: food.nameEn,
       aliases: food.aliases.filter((alias) => alias !== donor.nameZh),
     };
+  });
+}
+
+function uniqueNames(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function chineseFromFamilyParts(key: string, familyToZh: Map<string, string>): string | undefined {
+  const colon = key.indexOf(':');
+  if (colon < 0) return undefined;
+  const category = key.slice(0, colon);
+  const tokens = key.slice(colon + 1).split('+').filter(Boolean);
+  const extras = tokens.filter((token) => PROCESS_ZH[token]);
+  const base = tokens.filter((token) => !PROCESS_ZH[token]);
+  if (extras.length !== 1 || base.length === 0) return undefined;
+  const baseZh = familyToZh.get(`${category}:${base.sort().join('+')}`);
+  if (!baseZh) return undefined;
+  const extra = extras[0];
+  return extra === 'juice' || extra === 'puree' || extra === 'sauce' ? `${baseZh}${PROCESS_ZH[extra]}` : `${PROCESS_ZH[extra]}${baseZh}`;
+}
+
+export function inferChineseNames(foods: Food[]): Food[] {
+  const seeds = foods.filter((food) => isAnchor(food) && /[\u4e00-\u9fff]/.test(food.nameZh) && food.nameZh !== food.nameEn);
+  const familyToZh = new Map<string, string>();
+  for (const seed of seeds) {
+    const key = familyKey(seed);
+    if (key && !familyToZh.has(key)) familyToZh.set(key, seed.nameZh);
+  }
+  return foods.map((food) => {
+    if (/[\u4e00-\u9fff]/.test(food.nameZh) && food.nameZh !== food.nameEn) return food;
+    const key = familyKey(food);
+    const nameZh = (key ? familyToZh.get(key) ?? chineseFromFamilyParts(key, familyToZh) : undefined)
+      ?? translateOfficialName(food.nameEn);
+    if (!nameZh) return food;
+    return { ...food, nameZh, aliases: uniqueNames([nameZh, ...food.aliases]) };
   });
 }
 
@@ -206,6 +270,25 @@ export function buildClusterIndex(foods: Food[]): Map<string, string> {
       }
     }
     if (best) union(food.id, best.id);
+  }
+
+  const familyAnchors = new Map<string, string>();
+  for (const anchor of anchors) {
+    const key = familyKey(anchor);
+    if (key && !familyAnchors.has(key)) familyAnchors.set(key, anchor.id);
+  }
+  const familyGroups = new Map<string, string[]>();
+  for (const food of foods) {
+    const key = familyKey(food);
+    if (!key) continue;
+    const list = familyGroups.get(key) ?? [];
+    list.push(food.id);
+    familyGroups.set(key, list);
+  }
+  for (const [key, ids] of familyGroups) {
+    const root = familyAnchors.get(key) ?? ids[0];
+    if (ids.length < 2 && !familyAnchors.has(key)) continue;
+    for (const id of ids) union(root, id);
   }
 
   return parent;

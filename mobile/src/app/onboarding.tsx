@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BrandMarkTile } from '@/components/brand-mark';
 import { Card, PrimaryButton, Screen } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
 import { incrementLocalMetric } from '@/services/local-metrics';
@@ -41,7 +42,7 @@ export default function OnboardingScreen() {
 
   return <Screen>
     <View style={styles.hero}>
-      <View style={styles.logo}><Text style={styles.logoText}>食衡</Text></View>
+      <BrandMarkTile size={72} />
       <Text style={styles.kicker}>封闭测试安装包</Text>
       <Text style={styles.title}>一顿真实的家常饭，20–30 秒记清楚。</Text>
       <Text style={styles.subtitle}>这是可直接安装的封闭测试版，用来验证合菜、用油和复用。不替代医生、营养师或其他专业建议，也不用于商店公开发布。</Text>
@@ -71,9 +72,7 @@ export default function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
-  hero: { alignItems: 'center', paddingTop: spacing.xl, paddingBottom: spacing.md },
-  logo: { width: 68, height: 68, alignItems: 'center', justifyContent: 'center', borderRadius: radii.pill, backgroundColor: colors.brand, marginBottom: spacing.xl },
-  logoText: { color: colors.white, fontSize: 18, fontWeight: '800' },
+  hero: { alignItems: 'center', paddingTop: spacing.xl, paddingBottom: spacing.md, gap: spacing.xl },
   kicker: { color: colors.brand, fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
   title: { color: colors.ink, maxWidth: 320, marginTop: spacing.sm, fontSize: 28, fontWeight: '800', lineHeight: 36, letterSpacing: -0.7, textAlign: 'center' },
   subtitle: { color: colors.inkMuted, maxWidth: 330, marginTop: spacing.md, fontSize: 13, lineHeight: 21, textAlign: 'center' },

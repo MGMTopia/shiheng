@@ -1,5 +1,6 @@
 import React, { ErrorInfo, PropsWithChildren } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { BrandMarkTile } from '@/components/brand-mark';
 import { colors, radii, spacing } from '@/constants/theme';
 
 type ErrorBoundaryState = { error: Error | null };
@@ -26,7 +27,7 @@ export class AppErrorBoundary extends React.Component<PropsWithChildren, ErrorBo
     if (!this.state.error) return this.props.children;
 
     return <View style={styles.screen}>
-      <View style={styles.mark}><Text style={styles.markText}>食衡</Text></View>
+      <BrandMarkTile size={58} />
       <Text style={styles.title}>页面暂时出错了</Text>
       <Text style={styles.body}>你的本机饮食记录仍保留在设备上。可以先重试；如果问题持续，请通过“我的”页反馈。</Text>
       <Pressable onPress={this.reset} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
@@ -37,9 +38,7 @@ export class AppErrorBoundary extends React.Component<PropsWithChildren, ErrorBo
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, backgroundColor: colors.background },
-  mark: { width: 58, height: 58, alignItems: 'center', justifyContent: 'center', borderRadius: radii.pill, backgroundColor: colors.brand, marginBottom: spacing.lg },
-  markText: { color: colors.white, fontSize: 15, fontWeight: '800' },
+  screen: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, backgroundColor: colors.background, gap: spacing.lg },
   title: { color: colors.ink, fontSize: 24, fontWeight: '800', textAlign: 'center' },
   body: { maxWidth: 320, marginTop: spacing.md, color: colors.inkMuted, fontSize: 14, lineHeight: 22, textAlign: 'center' },
   button: { minHeight: 50, minWidth: 180, alignItems: 'center', justifyContent: 'center', borderRadius: radii.md, backgroundColor: colors.brand, marginTop: spacing.xl, paddingHorizontal: spacing.xl },

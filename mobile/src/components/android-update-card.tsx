@@ -16,7 +16,7 @@ export function AndroidUpdateCard() {
   const status = !enabled
     ? '当前会话未启用远程更新。网页不会拉取更新；正式安卓包会在启动时自动检查。'
     : currentlyRunning.isEmbeddedLaunch
-      ? '正在使用安装包内的程序。启动和回到前台时会自动检查更新，下载完成后会重启应用。'
+      ? '正在使用安装包内的程序。启动时会自动检查更新，下载完成后会重启应用。'
       : '正在使用已下载的更新。饮食记录仍只保存在本机，不会随更新上传。';
 
   const check = async () => {

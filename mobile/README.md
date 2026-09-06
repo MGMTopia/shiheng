@@ -23,7 +23,7 @@
 
 ## 开始运行
 
-环境要求：Node.js LTS、pnpm，以及手机上的兼容 Expo Go 或本地开发构建。
+环境要求：Node.js 22.13+（Expo SDK 57）、pnpm 11，以及手机上的兼容 Expo Go 或本地开发构建。
 
 ```powershell
 cd mobile
@@ -40,7 +40,10 @@ pnpm run web             # 启动Web开发版
 pnpm run android         # 需要Android Studio或已连接设备
 pnpm run ios             # iOS本机构建需要macOS/Xcode
 pnpm run export:web      # 生产Web导出到dist目录
+pnpm run ci              # 类型检查 + 领域测试 + Web导出
 ```
+
+`mobile/` 变更会触发 GitHub Actions：干净安装、类型检查、领域测试和生产 Web 导出。本机 APK 脚本不进入 CI。
 
 SDK 57通常需要与其匹配的Expo Go或development build。若应用商店中的Expo Go仍停留在SDK 54，请使用开发构建或另行建立SDK 54兼容分支。
 
@@ -102,7 +105,7 @@ node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-android-apk.mj
 
 在安卓手机上：把 APK 拷到手机 → 允许该文件管理器安装未知应用 → 打开安装。流程包含引导、搜索、记餐、日志、自定义食品、隐私、反馈和本机清除。卸载会删除沙箱数据，且已关闭系统备份。
 
-**自动更新**仍走 Expo 官方 `expo-updates` + EAS Update。当前未登录 Expo 时，安装包可独立使用，但不会拉取远程更新。登录后：
+**自动更新**走 Expo `expo-updates` + EAS Update。未配置 `EAS_PROJECT_ID` 时更新关闭，安装包可独立使用。OTA 渠道只有两个：`preview`（封闭测试 APK）和 `production`。登录后：
 
 ```powershell
 npx eas-cli login
@@ -152,6 +155,7 @@ Expo Go 和网页不会拉取该更新。改原生依赖或升 `version`（`appV
 
 - **Expo Router**：文件路由同时支持原生与Web。
 - **AsyncStorage**：验证期只在本机保存数据，降低后端复杂度。安卓关闭系统备份，卸载即清除。
-- **EAS Update（安卓）**：正式包装有启动/回前台检查；下载完成后自动重启应用。饮食记录不随更新上传。
+- **EAS Update（安卓）**：配置项目 ID 后，`preview` / `production` 通道在启动时检查；下载完成后自动重启。饮食记录不随更新上传。
+- **本机 APK 脚本**：`scripts/build-android-apk.mjs` 仅作临时本机构建，不改写 `node_modules`。正式发布应走 EAS。
 - **领域逻辑独立**：营养计算与页面分离，方便后续测试和后端迁移。
 - **数据来源优先**：界面直接显示可信等级，避免AI估算伪装成精确测量。

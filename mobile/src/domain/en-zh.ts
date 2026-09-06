@@ -1,0 +1,200 @@
+const PHRASES: [string, string][] = ([
+  ['breakfast cereal', '早餐麦片'],
+  ['protein drink', '蛋白饮料'],
+  ['protein powder', '蛋白粉'],
+  ['meal replacement drink', '代餐饮料'],
+  ['oral supplement drink', '口服营养补充饮料'],
+  ['intense sweetener', '高倍甜味剂'],
+  ['sandwich or roll', '三明治或卷'],
+  ['pasta dish', '意面餐'],
+  ['ready meal', '即食餐'],
+  ['ice cream', '冰淇淋'],
+  ['soft drink', '汽水'],
+  ['fruit drink', '果汁饮料'],
+  ['soy beverage', '豆奶'],
+  ['meat alternative', '素肉'],
+  ['mixed vegetables', '混合蔬菜'],
+  ['sweet potato', '红薯'],
+  ['beverage base', '冲调饮料粉'],
+  ['margarine spread', '人造黄油'],
+  ['stir-fry', '炒菜'],
+  ['stir fry', '炒菜'],
+  ['custard apple', '番荔枝'],
+  ['apple juice', '苹果汁'],
+  ['orange juice', '橙汁'],
+  ['fruit juice', '果汁'],
+  ['almond milk', '杏仁奶'],
+  ['soy milk', '豆奶'],
+  ['oat milk', '燕麦奶'],
+  ['coconut milk', '椰奶'],
+  ['coconut cream', '椰浆'],
+  ['greek yoghurt', '希腊酸奶'],
+  ['greek yogurt', '希腊酸奶'],
+  ['olive oil', '橄榄油'],
+  ['vegetable oil', '植物油'],
+  ['peanut butter', '花生酱'],
+  ['almond butter', '杏仁酱'],
+  ['fish sauce', '鱼露'],
+  ['soy sauce', '酱油'],
+  ['tomato sauce', '番茄酱'],
+  ['hot sauce', '辣椒酱'],
+  ['cream based sauce', '奶油酱'],
+  ['gravy sauce', '肉汁'],
+  ['tomato based sauce', '番茄酱汁'],
+  ['chicken breast', '鸡胸肉'],
+  ['chicken thigh', '鸡腿肉'],
+  ['chicken wing', '鸡翅'],
+  ['beef mince', '牛肉末'],
+  ['pork mince', '猪肉末'],
+  ['lamb mince', '羊肉末'],
+  ['brown rice', '糙米'],
+  ['white rice', '白米饭'],
+  ['rice noodle', '河粉'],
+  ['egg noodle', '鸡蛋面'],
+  ['wheat noodle', '麦面'],
+  ['wholemeal bread', '全麦面包'],
+  ['white bread', '白面包'],
+  ['bao bun', '包'],
+  ['applesauce', '苹果泥'],
+  ['apple sauce', '苹果泥'],
+  ['toffee coated', '拖肥涂层'],
+  ['not further defined', '未细分'],
+  ['no added fat', '未加油'],
+  ['no added sugar', '未加糖'],
+  ['added sugar', '加糖'],
+  ['added fat', '加油'],
+  ['lactose free', '无乳糖'],
+  ['gluten free', '无麸质'],
+  ['reduced fat', '低脂'],
+  ['low fat', '低脂'],
+  ['full cream', '全脂'],
+  ['regular fat', '全脂'],
+  ['meatball or rissole', '肉丸'],
+  ['ice confection', '冰品'],
+  ['infant food', '婴儿食品'],
+  ['dairy blend', '乳脂混合'],
+  ['chilli (chili)', '辣椒'],
+  ['shark (flake)', '鲨鱼肉'],
+  ['squid or calamari', '鱿鱼'],
+  ['mixed seafood', '海鲜拼盘'],
+  ['mixed berry', '混合浆果'],
+  ['dairy dessert', '奶制甜品'],
+  ['gnocchi dish', '意大利团子餐'],
+  ['bassa (basa)', '巴沙鱼'],
+  ['brussels sprout', '球芽甘蓝'],
+  ['hot dog', '热狗'],
+  ['blue grenadier (hoki)', '蓝尖尾无须鳕'],
+  ['lobster or crayfish', '龙虾'],
+  ['tarte tatin', '倒置苹果塔'],
+] as [string, string][]).sort((a, b) => b[0].length - a[0].length);
+
+const WORDS: Record<string, string> = {
+  beef: '牛肉', pork: '猪肉', lamb: '羊肉', veal: '小牛肉', chicken: '鸡肉', turkey: '火鸡',
+  duck: '鸭肉', fish: '鱼', salmon: '三文鱼', tuna: '金枪鱼', prawn: '虾', shrimp: '虾',
+  kangaroo: '袋鼠肉', goat: '山羊', sausage: '香肠', bacon: '培根', ham: '火腿', meat: '肉',
+  egg: '蛋', eggs: '蛋', tofu: '豆腐',
+  bread: '面包', biscuit: '饼干', cake: '蛋糕', muffin: '玛芬', pastry: '油酥点心', pie: '派',
+  pizza: '披萨', pasta: '意面', noodle: '面条', noodles: '面条', rice: '米饭', porridge: '粥',
+  flour: '面粉', muesli: '穆兹利', oats: '燕麦', oat: '燕麦', cereal: '麦片',
+  potato: '土豆', pumpkin: '南瓜', carrot: '胡萝卜', cabbage: '卷心菜', tomato: '番茄',
+  mushroom: '蘑菇', bean: '豆', beans: '豆', salad: '沙拉', vegetable: '蔬菜', vegetables: '蔬菜',
+  apple: '苹果', pear: '梨', banana: '香蕉', orange: '橙子', grape: '葡萄', mango: '芒果',
+  fruit: '水果', coconut: '椰子', avocado: '牛油果', peach: '桃', pineapple: '菠萝',
+  milk: '牛奶', yoghurt: '酸奶', yogurt: '酸奶', cheese: '奶酪', cream: '奶油', butter: '黄油',
+  custard: '蛋奶冻', pudding: '布丁',
+  soup: '汤', sauce: '酱', curry: '咖喱', casserole: '焗菜', stew: '炖菜',
+  sandwich: '三明治', hamburger: '汉堡', sushi: '寿司', burger: '汉堡', wrap: '卷饼',
+  coffee: '咖啡', tea: '茶', juice: '果汁', wine: '葡萄酒', beer: '啤酒', cider: '苹果酒',
+  beverage: '饮料', drink: '饮料', water: '水', cordial: '浓缩果汁', smoothie: '果昔',
+  chocolate: '巧克力', confectionery: '糖果', bar: '棒',
+  oil: '油', dip: '蘸酱', nut: '坚果', nuts: '坚果', peanut: '花生', almond: '杏仁',
+  grilled: '烤', baked: '烤', fried: '炸', boiled: '煮', steamed: '蒸', roasted: '烤',
+  poached: '水波', scrambled: '炒', mashed: '泥', dried: '干', canned: '罐头',
+  frozen: '冷冻', raw: '生', cooked: '熟', toasted: '烤', stewed: '炖', smoked: '熏',
+  commercial: '市售', homemade: '自制', takeaway: '外卖', restaurant: '餐馆',
+  plain: '原味', flavoured: '调味', flavored: '调味', sweetened: '加糖', unsweetened: '无糖',
+  salted: '咸', unsalted: '无盐', lean: '瘦', organic: '有机', fresh: '鲜',
+  wholemeal: '全麦', wholegrain: '全谷', white: '白', brown: '糙', wheat: '小麦', soy: '大豆',
+  rump: '臀肉', loin: '里脊', mince: '肉末', steak: '肉排', breast: '胸肉', thigh: '腿肉',
+  wing: '翅', fillet: '鱼排',
+  sugar: '糖', salt: '盐', honey: '蜂蜜', jam: '果酱',
+  instant: '方便', drained: '沥干', powdered: '粉', powder: '粉', flakes: '片',
+  alcoholic: '含酒精', coated: '裹层', crumble: '酥粒', gravy: '肉汁',
+  spinach: '菠菜', lettuce: '生菜', broccoli: '西兰花', onion: '洋葱', garlic: '蒜',
+  capsicum: '青椒', cucumber: '黄瓜', eggplant: '茄子', corn: '玉米', pea: '豌豆', peas: '豌豆',
+  strawberry: '草莓', blueberry: '蓝莓', watermelon: '西瓜',
+  barramundi: '澳洲肺鱼', crab: '蟹', lentil: '小扁豆', chickpea: '鹰嘴豆',
+  dumpling: '饺子', wonton: '云吞', bun: '包', toast: '吐司',
+  latte: '拿铁', espresso: '浓缩咖啡', milkshake: '奶昔',
+  mayonnaise: '蛋黄酱', vinegar: '醋', dressing: '沙拉酱',
+  lasagne: '千层面', kebab: '烤肉串',
+  pancake: '煎饼', doughnut: '甜甜圈', cookie: '曲奇',
+  jelly: '果冻', cocoa: '可可', snack: '零食',
+  supplement: '补充剂', soda: '汽水', broth: '高汤',
+  loaf: '条', roll: '卷', spread: '抹酱', seed: '籽', starch: '淀粉',
+  slice: '切片点心', mutton: '羊肉', lolly: '糖果', apricot: '杏', squash: '南瓜',
+  icing: '糖霜', scone: '司康', melon: '瓜', plum: '李子', chilli: '辣椒', chili: '辣椒',
+  syrup: '糖浆', peppers: '椒', tart: '塔', taco: '塔可', cherry: '樱桃',
+  cauliflower: '花椰菜', cocktail: '鸡尾酒', quiche: '咸派', risotto: '烩饭',
+  sardine: '沙丁鱼', trout: '鳟鱼', oyster: '牡蛎', paste: '酱', buffalo: '水牛',
+  salami: '萨拉米', asparagus: '芦笋', beetroot: '甜菜根', cassava: '木薯',
+  zucchini: '西葫芦', popcorn: '爆米花', quinoa: '藜麦', croissant: '可颂',
+  shortening: '起酥油', abalone: '鲍鱼', shark: '鲨鱼', flake: '鱼片',
+  liqueur: '利口酒', port: '波特酒', sake: '清酒', sherry: '雪利酒', spirit: '烈酒',
+  mirin: '味醂', bitters: '苦精', vegemite: '维吉麦', weetbix: 'Weet-Bix',
+  fat: '脂肪', uncooked: '生', dry: '干',
+  barley: '大麦', buckwheat: '荞麦', bulgur: '布尔格麦', cornmeal: '玉米面', polenta: '玉米粥',
+  couscous: '库斯库斯', millet: '小米', amaranth: '苋籽', psyllium: '车前子', groats: '麦粒',
+  squid: '鱿鱼', calamari: '鱿鱼', seafood: '海鲜', mandarin: '橘子', raspberry: '覆盆子',
+  frittata: '意式蛋饼', venison: '鹿肉', ginger: '姜', stock: '高汤',
+  bagel: '贝果', fritter: '油炸饼', gnocchi: '意大利团子', cod: '鳕鱼', mackerel: '鲭鱼',
+  snapper: '鲷鱼', scallop: '扇贝', camel: '骆驼', crocodile: '鳄鱼', emu: '鸸鹋',
+  ostrich: '鸵鸟', turtle: '海龟', seeds: '籽', artichoke: '洋蓟',
+  kombucha: '康普茶', kava: '卡瓦', acai: '阿萨伊',
+  berry: '浆果', dessert: '甜品', pearl: '珍珠', husk: '壳', grain: '谷物',
+  whole: '整粒', strudel: '果馅卷', turnover: '翻酥',
+  celery: '西芹', kale: '羽衣甘蓝', parsnip: '欧防风', sprout: '芽菜',
+  marmalade: '橘子酱', topping: '顶料', pavlova: '帕芙洛娃', tomatoes: '番茄',
+  nachos: '玉米片', bream: '鲷', flathead: '鲉鱼', kingfish: '鰤鱼',
+  mullet: '鲻鱼', perch: '鲈鱼', swordfish: '剑鱼', whiting: '鳕鲂',
+  lobster: '龙虾', crayfish: '小龙虾',
+  babyccino: '宝宝咖啡', buttermilk: '酪乳',
+};
+
+const IGNORE = new Set([
+  'a', 'an', 'the', 'and', 'or', 'of', 'with', 'from', 'for', 'to', 'in', 'on', 'by',
+  'no', 'not', 'further', 'defined', 'other', 'all', 'including', 'using', 'based',
+  'added', 'without', 'style', 'type', 'made', 'per', 'cent', 'contains', 'containing',
+  'as', 'into', 'over', 'under', 'than', 'plus', 'also', 'very', 'more', 'less',
+]);
+
+function translateSegment(segment: string): string {
+  const normalized = segment.trim().toLowerCase().replace(/\s+/g, ' ');
+  for (const [en, zh] of PHRASES) {
+    if (normalized === en) return zh;
+  }
+  let remaining = ` ${normalized.replace(/[^a-z0-9\s]+/g, ' ')} `;
+  const chunks: string[] = [];
+  for (const [en, zh] of PHRASES) {
+    const wrapped = ` ${en} `;
+    if (remaining.includes(wrapped)) {
+      chunks.push(zh);
+      remaining = remaining.split(wrapped).join(' ');
+    }
+  }
+  for (const word of remaining.trim().split(/\s+/).filter(Boolean)) {
+    if (IGNORE.has(word) || /^\d/.test(word)) continue;
+    const zh = WORDS[word];
+    if (zh && !chunks.includes(zh)) chunks.push(zh);
+  }
+  return chunks.join('');
+}
+
+export function translateOfficialName(nameEn: string): string | undefined {
+  const parts = nameEn.split(',').map((part) => part.trim()).filter(Boolean);
+  if (!parts.length) return undefined;
+  const head = translateSegment(parts[0]);
+  if (!head || !/[\u4e00-\u9fff]/.test(head)) return undefined;
+  const mods = [...new Set(parts.slice(1).map(translateSegment).filter((part) => /[\u4e00-\u9fff]/.test(part) && part !== head))];
+  return mods.length ? `${head}（${mods.join('，')}）` : head;
+}

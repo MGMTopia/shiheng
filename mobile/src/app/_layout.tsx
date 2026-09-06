@@ -49,7 +49,6 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.background }, headerShadowVisible: false, contentStyle: { backgroundColor: colors.background } }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="custom-food" options={{ title: '自定义食品', presentation: 'modal' }} />
-          <Stack.Screen name="recipes" options={{ title: '家庭菜谱' }} />
           <Stack.Screen name="recipe/[id]" options={{ title: '套餐' }} />
           <Stack.Screen name="onboarding" options={{ headerShown: false }} />
           <Stack.Screen name="privacy" options={{ title: '隐私与数据' }} />

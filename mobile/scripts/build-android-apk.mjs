@@ -1,16 +1,17 @@
+/**
+ * Local-only closed-trial APK helper. Not used by CI.
+ * Does not rewrite node_modules. Signing stays in gitignored credentials/.
+ */
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const require = createRequire(import.meta.url);
-
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const androidHome = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(os.homedir(), 'AppData/Local/Android/Sdk');
-const javaHome = process.env.JAVA_HOME || 'C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.101-hotspot';
+const javaHome = process.env.JAVA_HOME;
 const credentialsDir = path.join(root, 'credentials');
 const keystoreName = 'shiheng-upload.keystore';
 const keystorePath = path.join(credentialsDir, keystoreName);
@@ -18,14 +19,14 @@ const propertiesPath = path.join(credentialsDir, 'keystore.properties');
 const releaseDir = path.join(root, 'release');
 const apkName = 'shiheng-1.0.0-closed-trial.apk';
 
-process.env.NODE_PATH = path.join(root, 'node_modules');
-process.env.GRADLE_USER_HOME = process.env.GRADLE_USER_HOME || path.join(os.tmpdir(), 'shiheng-gradle');
-process.env.CMAKE_OBJECT_PATH_MAX = '1024';
+if (!javaHome) {
+  throw new Error('Set JAVA_HOME to a JDK 17+ install before building the local APK.');
+}
+
 process.env.CI = '1';
+process.env.NODE_ENV = process.env.NODE_ENV || 'production';
 process.env.ANDROID_HOME = androidHome;
 process.env.ANDROID_SDK_ROOT = androidHome;
-process.env.JAVA_HOME = javaHome;
-process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, '--dns-result-order=ipv4first'].filter(Boolean).join(' ');
 process.env.PATH = [path.join(androidHome, 'platform-tools'), path.join(javaHome, 'bin'), process.env.PATH].join(path.delimiter);
 
 function run(command, args, cwd = root) {
@@ -88,10 +89,6 @@ function injectSigning(properties) {
       gradleProperties += `\n${line}`;
     }
   }
-  gradleProperties = gradleProperties.replace(
-    /^reactNativeArchitectures=.*$/m,
-    'reactNativeArchitectures=arm64-v8a',
-  );
   fs.writeFileSync(gradlePropertiesPath, gradleProperties);
 
   const buildGradlePath = path.join(appDir, 'build.gradle');
@@ -122,90 +119,6 @@ function injectSigning(properties) {
   fs.writeFileSync(buildGradlePath, buildGradle);
 }
 
-function clearCxx(dir) {
-  const cxx = path.join(dir, 'android', '.cxx');
-  if (fs.existsSync(cxx)) fs.rmSync(cxx, { recursive: true, force: true });
-}
-
-function replaceWithJunction(linkPath, target) {
-  const parent = path.dirname(linkPath);
-  fs.mkdirSync(parent, { recursive: true });
-  if (fs.existsSync(linkPath)) {
-    try {
-      if (fs.realpathSync(linkPath).toLowerCase() === fs.realpathSync(target).toLowerCase()) return;
-    } catch {
-      // stale link
-    }
-    fs.rmSync(linkPath, { recursive: true, force: true });
-  }
-  fs.symlinkSync(target, linkPath, 'junction');
-  console.log(`Junction ${linkPath} -> ${target}`);
-}
-
-function relocateNativeModule(packageName, shortName) {
-  const from = path.dirname(require.resolve(`${packageName}/package.json`, { paths: [root] }));
-  const to = path.join('D:', 'n', shortName);
-  const topLevel = path.join(root, 'node_modules', packageName);
-  fs.mkdirSync(path.dirname(to), { recursive: true });
-  if (!fs.existsSync(path.join(to, 'package.json'))) {
-    fs.cpSync(from, to, { recursive: true, dereference: true, force: true });
-    console.log(`Copied ${packageName} -> ${to}`);
-  } else {
-    console.log(`Reusing ${to}`);
-  }
-  clearCxx(from);
-  clearCxx(to);
-  replaceWithJunction(from, to);
-  replaceWithJunction(topLevel, to);
-  const peers = path.join(to, 'node_modules');
-  fs.mkdirSync(peers, { recursive: true });
-  for (const peer of ['react-native', 'react-native-worklets']) {
-    try {
-      const peerFrom = path.dirname(require.resolve(`${peer}/package.json`, { paths: [root] }));
-      replaceWithJunction(path.join(peers, peer), peerFrom);
-    } catch (error) {
-      console.log(`skip peer ${peer}: ${error.message}`);
-    }
-  }
-  const resolved = path.dirname(require.resolve(`${packageName}/package.json`, { paths: [root] }));
-  console.log(`resolve ${packageName} -> ${resolved}`);
-}
-
-function shortenWindowsNativeModules() {
-  if (process.platform !== 'win32') return;
-  relocateNativeModule('react-native-reanimated', 're');
-  relocateNativeModule('expo-modules-core', 'em');
-}
-
-function writeCmakePathInit(androidDir) {
-  const initPath = path.join(androidDir, 'cmake-object-path.init.gradle');
-  fs.writeFileSync(initPath, `gradle.projectsLoaded {
-  rootProject.subprojects { sub ->
-    sub.afterEvaluate {
-      def androidExt = sub.extensions.findByName('android')
-      if (androidExt == null) return
-      try {
-        androidExt.defaultConfig.externalNativeBuild.cmake.arguments.add('-DCMAKE_OBJECT_PATH_MAX=1024')
-      } catch (Exception ignored) {}
-    }
-  }
-}
-`);
-  return initPath;
-}
-
-function withSubstDrive(source, letter, fn) {
-  const drive = `${letter}:`;
-  spawnSync('subst', [drive, '/D'], { stdio: 'ignore', shell: true });
-  const mapped = spawnSync('subst', [drive, source], { shell: true });
-  if (mapped.status !== 0) throw new Error(`subst ${drive} failed`);
-  try {
-    return fn(`${drive}\\`);
-  } finally {
-    spawnSync('subst', [drive, '/D'], { stdio: 'ignore', shell: true });
-  }
-}
-
 function copyApk() {
   const generated = path.join(root, 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk');
   if (!fs.existsSync(generated)) throw new Error(`Release APK not found at ${generated}`);
@@ -223,13 +136,9 @@ if (!skipPrebuild) {
   run('npx', ['expo', 'prebuild', '--platform', 'android', '--clean', '--non-interactive', '--no-install']);
 }
 injectSigning(properties);
-shortenWindowsNativeModules();
 const androidDir = path.join(root, 'android');
 if (process.platform === 'win32') {
-  const initPath = writeCmakePathInit(androidDir);
-  withSubstDrive(root, 'M', (mappedRoot) => {
-    run('gradlew.bat', ['assembleRelease', '-I', path.join(mappedRoot, 'android', path.basename(initPath))], path.join(mappedRoot, 'android'));
-  });
+  run('gradlew.bat', ['assembleRelease'], androidDir);
 } else {
   run('./gradlew', ['assembleRelease'], androidDir);
 }

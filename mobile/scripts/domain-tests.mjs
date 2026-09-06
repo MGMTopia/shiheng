@@ -150,6 +150,31 @@ const milkHits = catalog.searchCatalog({ query: '全脂牛奶' });
 assert.ok(milkHits[0].source.dataset === 'fsanz-ausnut' || milkHits[0].source.dataset === 'fsanz-afcd', '全脂牛奶预览应优先澳洲官方');
 assert.ok(milkHits[0].alternateSources?.some((item) => item.foodId === 'off-coles-milk') || milkHits[0].id === 'off-coles-milk', '全脂牛奶详情应能看到超市包装来源');
 
+const fuji = foods.find((food) => /apple, fuji/i.test(food.nameEn));
+assert.ok(fuji, '应保留富士苹果官方条目');
+assert.equal(groups.familyKey(foodsById.apple), groups.familyKey(fuji), '富士苹果应与苹果同类');
+assert.equal(fuji.nameZh, '苹果', '富士苹果应显示中文名苹果');
+assert.ok(catalog.foodCluster('apple').some((food) => /fuji/i.test(food.nameEn)), '苹果详情应能切换到富士苹果来源');
+assert.ok(!catalog.foodCluster('apple').some((food) => /juice/i.test(food.nameEn)), '苹果汁不得并进苹果');
+const appleHits = catalog.searchCatalog({ query: '苹果' });
+assert.equal(appleHits.filter((food) => food.nameZh === '苹果' || food.id === 'apple' || food.alternateSources?.some((item) => item.foodId === 'apple')).length, 1, '苹果同类品种应合并为一条');
+assert.equal(nutrition.displayFoodName(appleHits[0]), '苹果', '预览标题应使用中文');
+assert.ok(appleHits[0].nameEn !== appleHits[0].nameZh, '预览副标题应保留英文');
+
+const englishOnly = foods.filter((food) => food.nameEn.includes(',') && (!/[\u4e00-\u9fff]/.test(food.nameZh) || food.nameZh === food.nameEn));
+assert.ok(englishOnly.length < 450, `官方条目应补中文名，当前纯英文 ${englishOnly.length} 条`);
+for (const query of ['chicken', 'beef', 'bread', 'apple', 'milk']) {
+  const untitled = catalog.searchCatalog({ query }).filter((food) => !/[\u4e00-\u9fff]/.test(food.nameZh));
+  assert.ok(untitled.length <= 2, `${query} 搜索不应出现一堆纯英文标题，当前 ${untitled.length} 条`);
+}
+const chickenStir = foods.find((food) => /stir-fry, commercial, chicken$/i.test(food.nameEn));
+assert.ok(/[\u4e00-\u9fff]/.test(chickenStir.nameZh), '鸡炒应有中文名');
+assert.notEqual(chickenStir.nameZh, '番茄炒蛋', '鸡炒中文名不得写成番茄炒蛋');
+const appleJuice = foods.find((food) => /^apple juice/i.test(food.nameEn));
+assert.ok(appleJuice && /苹果/.test(appleJuice.nameZh), '苹果汁应显示中文');
+const custardApple = foods.find((food) => /^custard apple/i.test(food.nameEn));
+assert.ok(custardApple && custardApple.nameZh.includes('番荔枝'), '番荔枝不得显示成苹果');
+
 const tomatoEggHits = catalog.searchCatalog({ query: '番茄炒蛋' });
 assert.ok(tomatoEggHits.some((food) => food.id === 'tomato-egg'), '番茄炒蛋应命中家常条目');
 assert.equal(foods.filter((food) => food.nameZh === '番茄炒蛋').length, 1, '官方库不得把炒菜批量标成番茄炒蛋');

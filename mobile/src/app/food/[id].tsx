@@ -60,7 +60,7 @@ export default function FoodDetailScreen() {
   };
 
   return <Screen>
-    <View style={styles.heading}><View style={styles.titleRow}><Text style={styles.title}>{displayFoodName(titleFood ?? food)}</Text><SourceBadge confidence={food.source.confidence} /><Pressable onPress={() => toggleFavourite(food.id)} style={styles.favoriteButton}><Text style={styles.favoriteText}>{favouriteFoodIds.includes(food.id) ? '★ 已收藏' : '☆ 收藏'}</Text></Pressable></View><Text style={styles.subtitle}>{displayFoodName(titleFood ?? food) !== food.nameEn ? food.nameEn : food.category === 'mixed' ? '家常菜' : food.source.region === 'US' ? '美国对照' : '澳洲食物'}</Text></View>
+    <View style={styles.heading}><View style={styles.titleRow}><Text style={styles.title}>{displayFoodName(titleFood ?? food)}</Text><SourceBadge confidence={food.source.confidence} /><Pressable onPress={() => toggleFavourite(food.id)} style={styles.favoriteButton}><Text style={styles.favoriteText}>{favouriteFoodIds.includes(food.id) ? '★ 已收藏' : '☆ 收藏'}</Text></Pressable></View><Text style={styles.subtitle}>{[food.nameEn, food.category === 'mixed' ? '家常菜' : food.source.region === 'US' ? '美国对照' : '澳洲食物'].join(' · ')}</Text></View>
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>资料来源</Text>
       {sources.map((item) => {
@@ -68,7 +68,7 @@ export default function FoodDetailScreen() {
         const per100 = item.nutrientsPer100g;
         return <Pressable key={item.id} onPress={() => setActiveId(item.id)} style={[styles.sourceChoice, active && styles.sourceChoiceActive]}>
           <View style={styles.sourceHeader}><Text style={styles.sourceLabel}>{shortSourceTitle(item)}</Text><SourceBadge confidence={item.source.confidence} /></View>
-          <Text style={styles.sourceText}>{item.nameEn}</Text>
+          <Text style={styles.sourceText}>{displayFoodName(item) !== item.nameEn ? `${displayFoodName(item)} · ${item.nameEn}` : item.nameEn}</Text>
           <Text style={styles.sourceDate}>每100g：{formatEnergyPair(per100.energyKcal)} · 蛋白质 {formatNumber(per100.proteinG, 1)}g · 钠 {formatNumber(per100.sodiumMg)}mg</Text>
           {item.brand ? <Text style={styles.sourceDate}>品牌：{item.brand}{item.stores?.length ? ` · 有售：${item.stores.map((store) => store === 'woolworths' ? 'Woolworths' : 'Coles').join(' / ')}` : ''}</Text> : null}
           {item.barcode ? <Text style={styles.sourceDate}>条码：{item.barcode}</Text> : null}

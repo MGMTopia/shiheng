@@ -7,9 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "shiheng",
     "userInterfaceStyle": "light",
-    "ios": {
-      "icon": "./assets/expo.icon"
-    },
     "android": {
       "package": "au.shiheng.app",
       "versionCode": 1,
@@ -19,7 +16,7 @@
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#E8F3EC",
+        "backgroundColor": "#F5EEDC",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -30,7 +27,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "enabled": true,
+      "enabled": false,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
@@ -43,15 +40,15 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F6F8F3",
+          "backgroundColor": "#F5EEDC",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 180
         }
       ],
       "./plugins/with-android-data-cleanup"
     ],
     "extra": {
-      "releaseChannel": "closed-trial"
+      "releaseChannel": "preview"
     },
     "experiments": {
       "typedRoutes": true,
