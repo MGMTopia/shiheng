@@ -2,6 +2,7 @@ import { PropsWithChildren, ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radii, shadows, spacing } from '@/constants/theme';
+import type { FoodSource } from '@/types/nutrition';
 
 export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?: boolean }>) {
   const content = <View style={[styles.screenContent, !scroll && styles.fill]}>{children}</View>;
@@ -32,9 +33,14 @@ export function LoadingScreen() {
   return <SafeAreaView style={styles.loading}><ActivityIndicator color={colors.brand} size="large" /><Text style={styles.muted}>正在读取你的记录…</Text></SafeAreaView>;
 }
 
-export function SourceBadge({ confidence }: { confidence: 'high' | 'medium' | 'estimate' }) {
-  const labels = { high: '高可信', medium: '参考数据', estimate: '配方估算' };
-  return <View style={[styles.badge, confidence === 'estimate' && styles.badgeEstimate]}><Text style={styles.badgeText}>{labels[confidence]}</Text></View>;
+export function SourceBadge({ confidence, dataset }: { confidence: FoodSource['confidence']; dataset?: FoodSource['dataset'] }) {
+  const label = confidence === 'high' ? '高可信'
+    : confidence === 'medium' ? '参考数据'
+    : dataset === 'recipe-estimate' ? '配方估算'
+    : dataset === 'open-food-facts' ? '包装标签'
+    : dataset === 'user-entry' ? '我录入'
+    : '估算';
+  return <View style={[styles.badge, confidence === 'estimate' && styles.badgeEstimate]}><Text style={styles.badgeText}>{label}</Text></View>;
 }
 
 const styles = StyleSheet.create({

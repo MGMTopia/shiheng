@@ -1,7 +1,12 @@
-import type { CustomFood, FoodLogEntry, MealType, OilLevel, Recipe, UserProfile } from '@/types/nutrition';
+import type {
+  CustomFood, FoodCategory, FoodLogEntry, FoodSource, MealType, Nutrients, OilLevel, PortionMemory, Recipe, UserProfile,
+} from '@/types/nutrition';
 
 export const STORAGE_KEY = '@shiheng/state/v1';
-export const STATE_VERSION = 4;
+export const CORRUPT_STORAGE_KEY = '@shiheng/state/corrupt-v1';
+export const LAST_BACKUP_KEY = '@shiheng/last-backup-at';
+export const CATALOG_DB_NAME_KEY = '@shiheng/catalog-db-name';
+export const STATE_VERSION = 5;
 
 export const defaultProfile: UserProfile = {
   firstName: '朋友',
@@ -17,21 +22,29 @@ export type PersistedSnapshot = {
   favouriteFoodIds: string[];
   verifiedFoodIds: string[];
   recipes: Recipe[];
+  portionMemory: Record<string, PortionMemory>;
 };
 
 export type RestoreError = 'invalid-json' | 'not-object';
+export type RestoreStatus = 'empty' | 'ok' | 'error';
 
 export type RestoreResult = {
+  status: RestoreStatus;
   snapshot: PersistedSnapshot;
   migratedFrom: number | null;
   dropped: { entries: number; customFoods: number; recipes: number; ids: number };
   error?: RestoreError;
+  writable: boolean;
 };
 
 type UnknownRecord = Record<string, unknown>;
 
 const MEALS: readonly MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 const OIL_LEVELS: readonly OilLevel[] = ['light', 'normal', 'restaurant'];
+const FOOD_CATEGORIES: readonly FoodCategory[] = ['staple', 'protein', 'vegetable', 'fruit', 'dairy', 'mixed', 'snack'];
+const SOURCE_TYPES: readonly FoodSource['type'][] = ['official', 'label', 'recipe', 'demo'];
+const SOURCE_REGIONS: readonly FoodSource['region'][] = ['AU', 'CN', 'AU/CN', 'US'];
+const SOURCE_CONFIDENCE: readonly FoodSource['confidence'][] = ['high', 'medium', 'estimate'];
 
 export function emptySnapshot(): PersistedSnapshot {
   return {
@@ -42,6 +55,7 @@ export function emptySnapshot(): PersistedSnapshot {
     favouriteFoodIds: [],
     verifiedFoodIds: [],
     recipes: [],
+    portionMemory: {},
   };
 }
 
@@ -54,18 +68,18 @@ export function serializePersistedState(snapshot: PersistedSnapshot): string {
 
 export function parsePersistedState(raw: string | null | undefined): RestoreResult {
   if (raw == null || raw === '') {
-    return { snapshot: emptySnapshot(), migratedFrom: null, dropped: emptyDropped() };
+    return { status: 'empty', snapshot: emptySnapshot(), migratedFrom: null, dropped: emptyDropped(), writable: true };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { snapshot: emptySnapshot(), migratedFrom: null, dropped: emptyDropped(), error: 'invalid-json' };
+    return { status: 'error', snapshot: emptySnapshot(), migratedFrom: null, dropped: emptyDropped(), error: 'invalid-json', writable: false };
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { snapshot: emptySnapshot(), migratedFrom: null, dropped: emptyDropped(), error: 'not-object' };
+    return { status: 'error', snapshot: emptySnapshot(), migratedFrom: null, dropped: emptyDropped(), error: 'not-object', writable: false };
   }
 
   const payload = parsed as UnknownRecord;
@@ -96,6 +110,12 @@ function migratePayload(payload: UnknownRecord, version: number): UnknownRecord 
       if (profile.energyUnit !== 'kcal') profile.energyUnit = 'kj';
     }
   }
+  if (version < 5) {
+    next.portionMemory = next.portionMemory && typeof next.portionMemory === 'object' && !Array.isArray(next.portionMemory)
+      ? next.portionMemory
+      : {};
+    next.customFoods = Array.isArray(next.customFoods) ? next.customFoods.map(normalizeCustomFood) : [];
+  }
 
   return next;
 }
@@ -109,6 +129,7 @@ function normalizePayload(payload: UnknownRecord, migratedFrom: number): Restore
   const verifiedFoodIds = filterIds(payload.verifiedFoodIds, () => { dropped.ids += 1; });
 
   return {
+    status: 'ok',
     snapshot: {
       stateVersion: STATE_VERSION,
       entries,
@@ -117,9 +138,11 @@ function normalizePayload(payload: UnknownRecord, migratedFrom: number): Restore
       favouriteFoodIds,
       verifiedFoodIds,
       recipes,
+      portionMemory: migratePortionMemory(payload.portionMemory, () => { dropped.ids += 1; }),
     },
     migratedFrom: migratedFrom === STATE_VERSION ? STATE_VERSION : migratedFrom,
     dropped,
+    writable: true,
   };
 }
 
@@ -212,13 +235,38 @@ function isCustomFood(value: unknown): value is CustomFood {
   if (!value || typeof value !== 'object') return false;
   const food = value as UnknownRecord;
   const nutrients = food.nutrientsPer100g;
+  const source = food.source;
   return food.custom === true
     && typeof food.id === 'string' && food.id.length > 0
     && typeof food.nameZh === 'string' && food.nameZh.trim().length > 0
-    && typeof food.servingLabel === 'string'
+    && typeof food.servingLabel === 'string' && food.servingLabel.trim().length > 0
     && finitePositive(food.servingGrams, 0) > 0
-    && !!nutrients && typeof nutrients === 'object'
-    && Number.isFinite((nutrients as UnknownRecord).energyKcal);
+    && typeof food.category === 'string' && (FOOD_CATEGORIES as readonly string[]).includes(food.category)
+    && Array.isArray(food.tags)
+    && food.tags.every((tag) => typeof tag === 'string')
+    && !!nutrients && typeof nutrients === 'object' && isNutrients(nutrients)
+    && !!source && typeof source === 'object' && isFoodSource(source)
+    && typeof food.createdAt === 'string'
+    && (food.barcode == null || (typeof food.barcode === 'string' && food.barcode.trim().length > 0))
+    && (food.brand == null || typeof food.brand === 'string');
+}
+
+function isNutrients(value: unknown): value is Nutrients {
+  if (!value || typeof value !== 'object') return false;
+  const nutrients = value as UnknownRecord;
+  if (!Number.isFinite(nutrients.energyKcal) || (nutrients.energyKcal as number) < 0) return false;
+  const optional: (keyof Nutrients)[] = ['proteinG', 'carbsG', 'fatG', 'fibreG', 'sodiumMg', 'saturatedFatG', 'sugarG'];
+  return optional.every((key) => nutrients[key] == null || (typeof nutrients[key] === 'number' && Number.isFinite(nutrients[key]) && (nutrients[key] as number) >= 0));
+}
+
+function isFoodSource(value: unknown): value is FoodSource {
+  if (!value || typeof value !== 'object') return false;
+  const source = value as UnknownRecord;
+  return typeof source.type === 'string' && (SOURCE_TYPES as readonly string[]).includes(source.type)
+    && typeof source.label === 'string' && source.label.trim().length > 0
+    && typeof source.region === 'string' && (SOURCE_REGIONS as readonly string[]).includes(source.region)
+    && typeof source.confidence === 'string' && (SOURCE_CONFIDENCE as readonly string[]).includes(source.confidence)
+    && typeof source.updatedAt === 'string';
 }
 
 function isRecipe(value: unknown): value is Recipe {
@@ -232,7 +280,9 @@ function isRecipe(value: unknown): value is Recipe {
       const row = item as UnknownRecord;
       return typeof row.foodId === 'string' && row.foodId.length > 0 && finitePositive(row.servings, 0) > 0;
     })
-    && recipe.kind === 'household';
+    && recipe.kind === 'household'
+    && (recipe.defaultSharedWith == null || finitePositive(recipe.defaultSharedWith, 0) > 0)
+    && (recipe.defaultPortionShare == null || (typeof recipe.defaultPortionShare === 'number' && Number.isFinite(recipe.defaultPortionShare) && recipe.defaultPortionShare > 0 && recipe.defaultPortionShare <= 1));
 }
 
 function isMeal(value: unknown): value is MealType {
@@ -245,4 +295,52 @@ function isOilLevel(value: unknown): value is OilLevel {
 
 function finitePositive(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function migratePortionMemory(value: unknown, onDrop: () => void): Record<string, PortionMemory> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result: Record<string, PortionMemory> = {};
+  for (const [foodId, item] of Object.entries(value as Record<string, unknown>)) {
+    if (!foodId.trim() || !item || typeof item !== 'object') {
+      onDrop();
+      continue;
+    }
+    const row = item as UnknownRecord;
+    if (!finitePositive(row.servings, 0) || !isMeal(row.meal)) {
+      onDrop();
+      continue;
+    }
+    result[foodId] = {
+      servings: row.servings as number,
+      meal: row.meal,
+      oilLevel: isOilLevel(row.oilLevel) ? row.oilLevel : undefined,
+      sharedWith: finitePositive(row.sharedWith, 0) || undefined,
+      portionShare: typeof row.portionShare === 'number' && Number.isFinite(row.portionShare) && row.portionShare > 0 && row.portionShare <= 1
+        ? row.portionShare
+        : undefined,
+    };
+  }
+  return result;
+}
+
+function normalizeCustomFood(item: unknown): unknown {
+  if (!item || typeof item !== 'object') return item;
+  const food = item as UnknownRecord;
+  return {
+    ...food,
+    custom: true,
+    nameEn: typeof food.nameEn === 'string' ? food.nameEn : '',
+    aliases: Array.isArray(food.aliases) ? food.aliases.filter((alias) => typeof alias === 'string') : [],
+    category: typeof food.category === 'string' && (FOOD_CATEGORIES as readonly string[]).includes(food.category) ? food.category : 'mixed',
+    tags: Array.isArray(food.tags) && food.tags.length ? food.tags.filter((tag) => typeof tag === 'string') : ['custom'],
+    createdAt: typeof food.createdAt === 'string' && food.createdAt ? food.createdAt : '2026-01-01T00:00:00.000Z',
+    source: isFoodSource(food.source) ? food.source : {
+      type: 'label',
+      label: '用户根据包装或配方录入，尚未独立核验',
+      region: 'AU/CN',
+      confidence: 'estimate',
+      updatedAt: '2026-01-01',
+      dataset: 'user-entry',
+    },
+  };
 }

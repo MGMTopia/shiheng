@@ -1,10 +1,11 @@
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { AndroidUpdateCard } from '@/components/android-update-card';
+import { StorageRecoveryBanner } from '@/components/storage-recovery-banner';
 import { Card, LoadingScreen, Screen, SectionTitle, TextButton } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
 import Constants from 'expo-constants';
-import { catalogMeta, loggedFoodIds } from '@/data/catalog';
+import { catalogMeta, loggedFoodIds } from '@/data/catalog-constants';
 import { formatEnergy } from '@/domain/nutrition';
 import { useNutrition } from '@/store/nutrition-store';
 import type { EnergyUnit, NutritionTargets } from '@/types/nutrition';
@@ -17,15 +18,29 @@ const presets: { id: string; label: string; description: string; targets: Nutrit
 ];
 
 export default function ProfileScreen() {
-  const { profile, hydrated, updateProfile, clearEntries, entries, verifiedFoodIds } = useNutrition();
+  const { profile, hydrated, updateProfile, clearEntries, clearAllPersonalData, lastBackupAt, entries, verifiedFoodIds } = useNutrition();
   if (!hydrated) return <LoadingScreen />;
   const activeId = presets.find((preset) => preset.targets.energyKcal === profile.targets.energyKcal && preset.targets.proteinG === profile.targets.proteinG)?.id;
-  const confirmClear = () => Alert.alert('清除饮食记录？', '该操作只清除本机记录，无法撤销。', [
-    { text: '取消', style: 'cancel' }, { text: '清除', style: 'destructive', onPress: clearEntries },
+  const confirmClear = () => Alert.alert('清除饮食记录？', '建议先备份。该操作只清除饮食日志，无法撤销。', [
+    { text: '取消', style: 'cancel' },
+    { text: '先去备份', onPress: () => router.push('/data') },
+    { text: '清除日志', style: 'destructive', onPress: () => Alert.alert('再次确认', '确定清除全部饮食记录？自定义食品和菜谱会保留。', [
+      { text: '取消', style: 'cancel' },
+      { text: '清除', style: 'destructive', onPress: clearEntries },
+    ]) },
+  ]);
+  const confirmClearAll = () => Alert.alert('清除全部本机数据？', '会删除记录、自定义食品、收藏和家庭菜谱。建议先备份。', [
+    { text: '取消', style: 'cancel' },
+    { text: '先去备份', onPress: () => router.push('/data') },
+    { text: '继续', style: 'destructive', onPress: () => Alert.alert('最后确认', '清除后无法撤销，除非你已有备份文件。', [
+      { text: '取消', style: 'cancel' },
+      { text: '全部清除', style: 'destructive', onPress: clearAllPersonalData },
+    ]) },
   ]);
   const dexCount = loggedFoodIds(entries).length;
 
   return <Screen>
+    <StorageRecoveryBanner />
     <View><Text style={styles.title}>我的</Text><Text style={styles.subtitle}>设置只保存在本机，没有账号。</Text></View>
     <Card style={styles.notice}>
       <Text style={styles.noticeTitle}>一般健康模式</Text><Text style={styles.noticeText}>当前功能不根据疾病、药物、孕期或化验结果提供治疗建议。特殊需求请咨询澳洲注册营养师（APD）或医生。</Text>
@@ -69,6 +84,9 @@ export default function ProfileScreen() {
 
     <SectionTitle>设置</SectionTitle>
     <View style={styles.actionList}>
+      <Pressable onPress={() => router.push('/data')} style={styles.actionRow}>
+        <View style={styles.actionMain}><Text style={styles.actionTitle}>备份、恢复和导出</Text><Text style={styles.actionDescription}>{lastBackupAt ? `最近备份 ${new Date(lastBackupAt).toLocaleString('zh-CN')}` : '导出 JSON 备份或 CSV 日志，也可从备份恢复。'}</Text></View><Text style={styles.actionArrow}>›</Text>
+      </Pressable>
       <Pressable onPress={() => router.push('/privacy')} style={styles.actionRow}>
         <View style={styles.actionMain}><Text style={styles.actionTitle}>隐私与数据说明</Text><Text style={styles.actionDescription}>查看本机保存内容和你的控制方式。</Text></View><Text style={styles.actionArrow}>›</Text>
       </Pressable>
@@ -90,7 +108,7 @@ export default function ProfileScreen() {
 
     <AndroidUpdateCard />
 
-    <Card style={styles.dataCard}><View style={styles.dataText}><Text style={styles.dataTitle}>本机数据</Text><Text style={styles.dataDescription}>清除饮食记录，保留当前目标和称呼。卸载应用会删除记录、反馈和指标；已关闭系统备份，避免重装后被还原。</Text></View><TextButton label="清除记录" tone="danger" onPress={confirmClear} /></Card>
+    <Card style={styles.dataCard}><View style={styles.dataText}><Text style={styles.dataTitle}>本机数据</Text><Text style={styles.dataDescription}>卸载应用会删除记录。已关闭系统备份。清除前请先导出 JSON。</Text></View><View><TextButton label="清除日志" tone="danger" onPress={confirmClear} /><TextButton label="全部清除" tone="danger" onPress={confirmClearAll} /></View></Card>
 
     <SectionTitle>关于</SectionTitle>
     <Card>

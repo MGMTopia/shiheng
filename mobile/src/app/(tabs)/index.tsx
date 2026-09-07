@@ -2,22 +2,24 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BrandMarkTile } from '@/components/brand-mark';
 import { RingStat } from '@/components/ring-stat';
+import { StorageRecoveryBanner } from '@/components/storage-recovery-banner';
 import { Card, LoadingScreen, PrimaryButton, Screen, SectionTitle, TextButton } from '@/components/ui';
 import { colors, spacing } from '@/constants/theme';
-import { createFoodIndex } from '@/data/catalog';
+import { useFoodRepository } from '@/data/food-repository-context';
 import {
   closestPortionLabel, displayFoodName, entriesForDate, foodGroupServes, formatEnergy, formatNumber,
-  kcalToKj, latestMealBefore, mealCardsForDate, mealItemNames, mealLabels, nextMealSuggestion, oilLevelLabels,
-  percent, suggestedMealSlot, totalForEntries,
+  kcalToKj, latestMealBefore, mealCardsForDate, mealItemNames, mealLabels, nextMealSuggestion, nutrientNumber,
+  oilLevelLabels, percent, recentFoodIds, suggestedMealSlot, totalForEntries,
 } from '@/domain/nutrition';
 import { useNutrition } from '@/store/nutrition-store';
 import type { MealType } from '@/types/nutrition';
 
 export default function TodayScreen() {
-  const { entries, profile, customFoods, hydrated, copyMeal } = useNutrition();
+  const { entries, profile, customFoods, hydrated, copyMeal, favouriteFoodIds, portionMemory } = useNutrition();
+  const foods = useFoodRepository();
   if (!hydrated) return <LoadingScreen />;
   const todayEntries = entriesForDate(entries);
-  const foodIndex = createFoodIndex(customFoods);
+  const foodIndex = foods.getByIds([...entries.map((entry) => entry.foodId), ...favouriteFoodIds], customFoods);
   const total = totalForEntries(todayEntries, foodIndex);
   const groups = foodGroupServes(todayEntries, foodIndex);
   const cards = mealCardsForDate(todayEntries);
@@ -32,6 +34,7 @@ export default function TodayScreen() {
   const fatTarget = Math.round(profile.targets.energyKcal * 0.3 / 9);
 
   return <Screen>
+    <StorageRecoveryBanner />
     <View style={styles.header}>
       <View>
         <Text style={styles.greeting}>{hello}，{profile.firstName.trim() || '朋友'}</Text>
@@ -51,17 +54,49 @@ export default function TodayScreen() {
       </View>
       <Text style={styles.heroMeta}>{formatNumber(total.energyKcal)} kcal · 目标 {formatEnergy(profile.targets.energyKcal, profile.energyUnit)}</Text>
       <View style={styles.rings}>
-        <RingStat label="蛋白质" value={total.proteinG} target={profile.targets.proteinG} unit="%" />
-        <RingStat label="碳水" value={total.carbsG} target={carbTarget} unit="%" tone="blue" />
-        <RingStat label="脂肪" value={total.fatG} target={fatTarget} unit="%" tone="amber" />
+        <RingStat label="蛋白质" value={nutrientNumber(total.proteinG)} target={profile.targets.proteinG} unit="%" />
+        <RingStat label="碳水" value={nutrientNumber(total.carbsG)} target={carbTarget} unit="%" tone="blue" />
+        <RingStat label="脂肪" value={nutrientNumber(total.fatG)} target={fatTarget} unit="%" tone="amber" />
       </View>
     </Card>
 
     <Card style={styles.suggestionCard}>
-      <Text style={styles.suggestionKicker}>下一餐建议</Text>
-      <Text style={styles.suggestion}>{nextMealSuggestion(total, profile.targets, groups)}</Text>
-      <Text style={styles.disclaimer}>估算值，仅供日常参考，不用于疾病诊断或治疗。</Text>
+      <Text style={styles.suggestionKicker}>今日结构</Text>
+      <Text style={styles.suggestion}>{todayEntries.length === 0
+        ? '还没有记录。记下一餐后，这里会提示蛋白质、纤维、钠和蔬菜是否明显偏离。'
+        : [
+          nutrientNumber(total.proteinG) < profile.targets.proteinG * 0.5 ? '蛋白质明显不足' : null,
+          nutrientNumber(total.fibreG) < profile.targets.fibreG * 0.45 ? '膳食纤维不足' : null,
+          nutrientNumber(total.sodiumMg) > profile.targets.sodiumMg * 0.8 ? '钠偏高' : null,
+          groups.vegetableServes < profile.targets.vegetableServes * 0.45 ? '蔬菜偏少' : null,
+        ].filter(Boolean).join(' · ') || '目前没有突出的结构偏差。'}</Text>
+      {todayEntries.length > 0 ? <Text style={styles.suggestion}>{nextMealSuggestion(total, profile.targets, groups)}</Text> : null}
+      <Text style={styles.disclaimer}>家常菜和合菜是估算。不完整记录时，统计只反映已记下的食物。</Text>
     </Card>
+
+    {(() => {
+      const shortcuts = favouriteFoodIds.slice(0, 12).map((foodId) => foodIndex[foodId]).filter(Boolean);
+      if (!shortcuts.length) return null;
+      return <Card style={styles.repeatCard}>
+        <Text style={styles.repeatTitle}>个人快捷</Text>
+        <Text style={styles.repeatMeta}>收藏的食物会出现在这里，最多 12 个，直接用上次份量和餐次。</Text>
+        {shortcuts.map((food) => {
+          const remembered = portionMemory[food.id];
+          return <TextButton key={food.id} label={`${displayFoodName(food)}${remembered ? ` · ${remembered.servings} 份` : ' · 再用上次份量'}`} onPress={() => router.push({ pathname: '/food/[id]', params: { id: food.id } })} />;
+        })}
+      </Card>;
+    })()}
+
+    {(() => {
+      const recent = recentFoodIds(entries, 6).map((foodId) => foodIndex[foodId]).filter(Boolean);
+      if (!recent.length) return null;
+      return <Card style={styles.repeatCard}>
+        <Text style={styles.repeatTitle}>最近吃过</Text>
+        {recent.map((food) => (
+          <TextButton key={food.id} label={`${displayFoodName(food)} · 再用上次份量`} onPress={() => router.push({ pathname: '/food/[id]', params: { id: food.id } })} />
+        ))}
+      </Card>;
+    })()}
 
     {lastMeal ? <Card style={styles.repeatCard}>
       <Text style={styles.repeatTitle}>再记上次{mealLabels[slot]}</Text>

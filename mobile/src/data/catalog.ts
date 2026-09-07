@@ -1,25 +1,29 @@
-import { catalogMeta } from '@/data/catalog-meta';
-import { featuredFoods, foodCategories, foods } from '@/data/foods';
-import { buildClusterIndex, clusterMembers, collapseSearchHits, presentCluster } from '@/domain/catalog-groups';
+import {
+  SEARCH_MAX_RESULTS,
+  SEARCH_PAGE_SIZE,
+  catalogMeta,
+  catalogSourceFilters,
+  foodCategories,
+  loggedFoodIds,
+  resolveSource,
+} from '@/data/catalog-constants';
+import { featuredFoods, foods } from '@/data/foods';
+import { attachCustomSources, buildClusterIndex, clusterMembers, collapseSearchHits, presentCluster } from '@/domain/catalog-groups';
 import { catalogSearchScore, catalogStatus, matchesFoodQuery } from '@/domain/nutrition';
 import type { CatalogSourceFilter, CatalogStatus, Food, FoodCategory, FoodLogEntry } from '@/types/nutrition';
 
-export { catalogMeta, foodCategories, foods };
-
-export const catalogSourceFilters: { id: CatalogSourceFilter; label: string }[] = [
-  { id: 'common', label: '常用' },
-  { id: 'logged', label: '吃过' },
-  { id: 'supermarket', label: '超市' },
-  { id: 'official', label: '澳洲官方' },
-  { id: 'overseas', label: '海外' },
-];
+export {
+  SEARCH_MAX_RESULTS,
+  SEARCH_PAGE_SIZE,
+  catalogMeta,
+  catalogSourceFilters,
+  foodCategories,
+  foods,
+};
 
 const clusterOf = buildClusterIndex(foods);
 const catalogFoodIndex: Record<string, Food> = Object.fromEntries(foods.map((food) => [food.id, food]));
 const foodIndexCache = new WeakMap<Food[], Record<string, Food>>();
-
-export const SEARCH_PAGE_SIZE = 30;
-export const SEARCH_MAX_RESULTS = 80;
 
 export function createFoodIndex(customFoods: Food[] = []): Record<string, Food> {
   if (!customFoods.length) return catalogFoodIndex;
@@ -35,30 +39,18 @@ export function mergedFoodCatalog(customFoods: Food[] = []): Food[] {
   return [...customFoods, ...foods];
 }
 
-export function loggedFoodIds(entries: FoodLogEntry[]): string[] {
-  return [...new Set(entries.map((entry) => entry.foodId))];
-}
-
-function resolveSource(options: {
-  source?: CatalogSourceFilter;
-  dexOnly?: boolean;
-  supermarketOnly?: boolean;
-  officialOnly?: boolean;
-  overseasOnly?: boolean;
-}): CatalogSourceFilter {
-  if (options.source) return options.source;
-  if (options.officialOnly) return 'official';
-  if (options.overseasOnly) return 'overseas';
-  if (options.supermarketOnly) return 'supermarket';
-  if (options.dexOnly) return 'logged';
-  return 'common';
-}
+export { loggedFoodIds, resolveSource };
 
 export function foodCluster(foodId: string, customFoods: Food[] = []): Food[] {
-  const catalog = mergedFoodCatalog(customFoods);
-  const index = customFoods.length ? buildClusterIndex(catalog) : clusterOf;
-  const members = clusterMembers(catalog, index, foodId);
-  return members.length ? members : catalog.filter((food) => food.id === foodId);
+  const official = clusterMembers(foods, clusterOf, foodId);
+  const officialMembers = official.length ? official : (catalogFoodIndex[foodId] ? [catalogFoodIndex[foodId]] : []);
+  const custom = customFoods.find((food) => food.id === foodId);
+  if (officialMembers.length) {
+    const members = attachCustomSources(officialMembers, customFoods);
+    if (custom && !members.some((food) => food.id === custom.id)) return [custom, ...members];
+    return members;
+  }
+  return custom ? attachCustomSources([custom], customFoods.filter((food) => food.id !== custom.id)) : [];
 }
 
 export function presentedFood(foodId: string, customFoods: Food[] = [], source?: CatalogSourceFilter): Food | undefined {

@@ -140,10 +140,14 @@ export function queryMatchRank(food: Food, query: string): number {
   if (!raw) return 0;
   const needle = raw.toLowerCase();
   const compactQuery = compact(raw);
+  const digits = raw.replace(/\D/g, '');
+  const barcode = food.barcode?.replace(/\D/g, '') ?? '';
+  if (barcode && digits.length >= 8 && (barcode === digits || barcode.endsWith(digits) || digits.endsWith(barcode))) return 1200;
   const normalizedQuery = normalizeFoodQuery(raw);
   const nameZh = food.nameZh.toLowerCase();
   const nameEn = food.nameEn.toLowerCase();
   if (nameZh === needle || nameEn === needle || compact(food.nameZh) === compactQuery || compact(food.nameEn) === compactQuery) return 1000;
+  if (food.brand && compact(food.brand) === compactQuery) return 950;
   if (food.aliases.some((alias) => alias.toLowerCase() === needle || compact(alias) === compactQuery)) return 900;
   const normalizedZh = normalizeFoodQuery(food.nameZh);
   const normalizedEn = normalizeFoodQuery(food.nameEn);

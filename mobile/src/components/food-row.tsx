@@ -11,7 +11,7 @@ export const FoodRow = memo(function FoodRow({ food, onPress, catalogStatus = 'u
   const serving = nutrientsForServing(food);
   return <Pressable onPress={() => onPress(food.id)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
     <View style={styles.main}>
-      <View style={styles.titleRow}><Text style={styles.title}>{displayFoodName(food)}</Text><SourceBadge confidence={food.source.confidence} />{catalogStatus !== 'unseen' && <Text style={styles.dex}>{catalogStatusLabels[catalogStatus]}</Text>}</View>
+      <View style={styles.titleRow}><Text style={styles.title}>{displayFoodName(food)}</Text><SourceBadge confidence={food.source.confidence} dataset={food.source.dataset} />{catalogStatus !== 'unseen' && <Text style={styles.dex}>{catalogStatusLabels[catalogStatus]}</Text>}</View>
       <Text style={styles.subtitle}>{[displayFoodName(food) !== food.nameEn ? food.nameEn : null, food.brand, food.source.region === 'US' ? '美国对照' : null, `${food.servingLabel}（${food.servingGrams}克）`, (food.alternateSources?.length ?? 0) > 0 ? `${(food.alternateSources?.length ?? 0) + 1} 个来源` : null].filter(Boolean).join(' · ')}</Text>
       <Text style={styles.meta}>{formatEnergyPair(serving.energyKcal)} · 蛋白质 {formatNumber(serving.proteinG, 1)}g</Text>
     </View><View style={styles.add}><Text style={styles.addText}>＋</Text></View>

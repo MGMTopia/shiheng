@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const sourceRoot = pathToFileURL(`${process.cwd()}/src/`).href;
 
@@ -104,7 +104,7 @@ const valid = validation.validateFoodDraft({
 assert.equal(valid.valid, true, '有效自定义食品应通过');
 if (valid.valid) {
   assert.equal(valid.food.source.confidence, 'estimate');
-  assert.equal(valid.food.nutrientsPer100g.sugarG, 0);
+  assert.equal(valid.food.nutrientsPer100g.sugarG, null);
 }
 
 assert.ok(foods.length >= 4000, '导入后的随包目录应包含 FSANZ 与 USDA 对照');
@@ -127,6 +127,13 @@ assert.ok(nutrition.matchesFoodQuery(foodsById['off-woolworths-milk'], 'woolies'
 assert.ok(!nutrition.matchesFoodQuery(foodsById['off-woolworths-milk'], 'coles'), 'Woolworths 自有品牌不应被 Coles 关键词命中');
 assert.ok(nutrition.matchesFoodQuery(foodsById['off-weet-bix'], '超市'), '超市关键词应命中包装食品');
 assert.ok(foods.filter((food) => food.tags.includes('supermarket')).length >= 15, '应包含一小批超市包装食品');
+assert.ok(catalog.searchCatalog({ query: '酱油' }).some((food) => food.id === 'soy-sauce' || food.alternateSources?.some((item) => item.foodId === 'soy-sauce')), '酱油应能搜到生抽');
+assert.ok(catalog.searchCatalog({ query: '方便面' }).some((food) => food.id === 'instant-noodles-cooked' || food.alternateSources?.some((item) => item.foodId === 'instant-noodles-cooked')), '方便面应能搜到煮熟方便面');
+const weetBarcodeHits = catalog.searchCatalog({ query: '9300652010794' });
+assert.ok(weetBarcodeHits[0]?.id === 'off-weet-bix' || weetBarcodeHits[0]?.alternateSources?.some((item) => item.foodId === 'off-weet-bix'), '条码应把对应包装食品排到前面');
+assert.ok(foods.filter((food) => food.source.dataset === 'open-food-facts').length >= 15, '应包含超市包装食品');
+assert.ok(foods.filter((food) => food.id.startsWith('off-gen-')).length >= 500, '应导入一批澳洲 Open Food Facts 包装食品');
+assert.ok(!foods.some((food) => food.source.dataset === 'user-entry' && food.tags.includes('fsanz')), '用户录入不得并进官方来源标记');
 
 const groups = await import('../src/domain/catalog-groups.ts');
 assert.equal(groups.sameCatalogItem(foodsById['egg-boiled'], foodsById['ausnut-17101003']), true, '水煮蛋应与澳洲官方硬煮蛋合并');
@@ -161,18 +168,18 @@ assert.equal(appleHits.filter((food) => food.nameZh === '苹果' || food.id === 
 assert.equal(nutrition.displayFoodName(appleHits[0]), '苹果', '预览标题应使用中文');
 assert.ok(appleHits[0].nameEn !== appleHits[0].nameZh, '预览副标题应保留英文');
 
-const englishOnly = foods.filter((food) => food.nameEn.includes(',') && (!/[\u4e00-\u9fff]/.test(food.nameZh) || food.nameZh === food.nameEn));
+const englishOnly = foods.filter((food) => food.source.dataset !== 'open-food-facts' && food.nameEn.includes(',') && (!/[\u4e00-\u9fff]/.test(food.nameZh) || food.nameZh === food.nameEn));
 assert.ok(englishOnly.length < 450, `官方条目应补中文名，当前纯英文 ${englishOnly.length} 条`);
 for (const query of ['chicken', 'beef', 'bread', 'apple', 'milk']) {
-  const untitled = catalog.searchCatalog({ query }).filter((food) => !/[\u4e00-\u9fff]/.test(food.nameZh));
+  const untitled = catalog.searchCatalog({ query }).filter((food) => !/[\u4e00-\u9fff]/.test(food.nameZh) && food.source.dataset !== 'open-food-facts');
   assert.ok(untitled.length <= 2, `${query} 搜索不应出现一堆纯英文标题，当前 ${untitled.length} 条`);
 }
 const chickenStir = foods.find((food) => /stir-fry, commercial, chicken$/i.test(food.nameEn));
 assert.ok(/[\u4e00-\u9fff]/.test(chickenStir.nameZh), '鸡炒应有中文名');
 assert.notEqual(chickenStir.nameZh, '番茄炒蛋', '鸡炒中文名不得写成番茄炒蛋');
-const appleJuice = foods.find((food) => /^apple juice/i.test(food.nameEn));
+const appleJuice = foods.find((food) => /^apple juice/i.test(food.nameEn) && food.source.dataset !== 'open-food-facts');
 assert.ok(appleJuice && /苹果/.test(appleJuice.nameZh), '苹果汁应显示中文');
-const custardApple = foods.find((food) => /^custard apple/i.test(food.nameEn));
+const custardApple = foods.find((food) => /^custard apple/i.test(food.nameEn) && food.source.dataset !== 'open-food-facts');
 assert.ok(custardApple && custardApple.nameZh.includes('番荔枝'), '番荔枝不得显示成苹果');
 
 const tomatoEggHits = catalog.searchCatalog({ query: '番茄炒蛋' });
@@ -203,7 +210,7 @@ assert.ok(tomatoEstimate.wholeDish.fatG > 8, '按食材估算应计入用油脂�
 
 const compositions = await import('../src/data/dish-compositions.ts');
 const compositionIds = Object.keys(compositions.dishCompositions);
-assert.ok(compositionIds.length >= 20, '应收录一批高频复合菜构成');
+assert.ok(compositionIds.length >= 50, '应收录一批高频复合菜构成');
 for (const [id, composition] of Object.entries(compositions.dishCompositions)) {
   assert.ok(foodsById[id], `复合菜 ${id} 应存在于目录`);
   assert.ok(foodsById[id].composition, `复合菜 ${id} 应挂上构成`);
@@ -219,6 +226,75 @@ assert.ok(recipes.starterRecipes.every((recipe) => recipe.items.length >= 2), '�
 assert.ok(!('composition' in recipes.starterRecipes[0]), '套餐不是单道复合菜');
 assert.ok(catalog.searchCatalog({ source: 'official' }).length <= 30, '来源筛选澳洲官方应分页');
 assert.ok(catalog.searchCatalog({ source: 'common' }).length < 200, '常用来源空白搜索只返回常用食物');
+
+const { existsSync } = await import('node:fs');
+const { DatabaseSync } = await import('node:sqlite');
+const { createSqliteFoodRepository } = await import('../src/data/sqlite-food-repository.ts');
+const catalogDbPath = fileURLToPath(new URL('../assets/catalog/foods.db', import.meta.url));
+assert.ok(existsSync(catalogDbPath), '应生成预计算 SQLite 目录库');
+const catalogDb = new DatabaseSync(catalogDbPath, { readOnly: true });
+const sqliteFoods = createSqliteFoodRepository({
+  all: (sql, params = []) => {
+    const statement = catalogDb.prepare(sql);
+    return params.length ? statement.all(...params) : statement.all();
+  },
+  first: (sql, params = []) => {
+    const statement = catalogDb.prepare(sql);
+    return params.length ? statement.get(...params) : statement.get();
+  },
+});
+assert.ok(sqliteFoods.search({}).length < 200, 'SQLite 空白搜索只应返回常用食物');
+assert.ok(sqliteFoods.search({ officialOnly: true }).length <= 30, 'SQLite 官方库搜索应分页');
+assert.ok(sqliteFoods.search({ query: 'milk' }).some((food) => food.tags.includes('fsanz')), 'SQLite milk 应命中 FSANZ 条目');
+const sqliteEggHits = sqliteFoods.search({ query: '水煮蛋' });
+assert.ok(sqliteEggHits.some((food) => food.id === 'egg-boiled' || food.alternateSources?.some((item) => item.foodId === 'egg-boiled')), 'SQLite 水煮蛋搜索应覆盖家常条目');
+assert.equal(sqliteEggHits.filter((food) => food.id === 'egg-boiled' || food.alternateSources?.some((item) => item.foodId === 'egg-boiled')).length, 1, 'SQLite 水煮蛋同类来源应合并为一条');
+assert.equal(sqliteEggHits[0].id, eggHits[0].id, 'SQLite 与内存目录的水煮蛋预览应一致');
+const sqliteMilkHits = sqliteFoods.search({ query: '全脂牛奶' });
+assert.ok(sqliteMilkHits[0].source.dataset === 'fsanz-ausnut' || sqliteMilkHits[0].source.dataset === 'fsanz-afcd', 'SQLite 全脂牛奶预览应优先澳洲官方');
+const sqliteAppleHits = sqliteFoods.search({ query: '苹果' });
+assert.equal(sqliteAppleHits.filter((food) => food.nameZh === '苹果' || food.id === 'apple' || food.alternateSources?.some((item) => item.foodId === 'apple')).length, 1, 'SQLite 苹果同类品种应合并为一条');
+assert.ok(sqliteFoods.cluster('apple').some((food) => /fuji/i.test(food.nameEn)), 'SQLite 苹果详情应能切换到富士苹果来源');
+assert.ok(sqliteFoods.search({ query: '酱油' }).some((food) => food.id === 'soy-sauce' || food.alternateSources?.some((item) => item.foodId === 'soy-sauce')), 'SQLite 酱油应能搜到生抽');
+assert.ok(sqliteFoods.search({ query: '方便面' }).some((food) => food.id === 'instant-noodles-cooked' || food.alternateSources?.some((item) => item.foodId === 'instant-noodles-cooked')), 'SQLite 方便面应能搜到煮熟方便面');
+assert.ok(sqliteFoods.search({ query: '9300652010794' })[0]?.id === 'off-weet-bix' || sqliteFoods.search({ query: '9300652010794' })[0]?.alternateSources?.some((item) => item.foodId === 'off-weet-bix'), 'SQLite 条码应优先对应包装食品');
+assert.ok(sqliteFoods.getById('egg-boiled')?.nameZh, 'SQLite 应按 id 取食物');
+assert.ok(sqliteFoods.listCompositeDishes().some((food) => food.id === 'tomato-egg'), 'SQLite 应列出复合菜');
+
+const customMilk = {
+  ...foodsById['milk-full-cream'],
+  id: 'custom-test-milk',
+  nameZh: '我手抄的牛奶',
+  custom: true,
+  tags: ['custom'],
+  source: { ...foodsById['milk-full-cream'].source, dataset: 'user-entry', confidence: 'estimate', type: 'label', label: '用户录入' },
+};
+for (const id of ['milk-full-cream', 'apple', 'egg-boiled']) {
+  const members = sqliteFoods.cluster(id, [customMilk]);
+  assert.ok(members.some((food) => food.id === id), `有自定义食品时 ${id} 官方聚类仍应包含自身`);
+  assert.ok(members.filter((food) => food.tags.includes('fsanz') || food.id === id).length >= 1, `有自定义食品时 ${id} 应保留官方条目`);
+}
+assert.ok(sqliteFoods.cluster('milk-full-cream', [customMilk]).some((food) => food.id === 'custom-test-milk' || food.id === 'milk-full-cream'), '自定义牛奶只应作为额外来源');
+const appleCluster = sqliteFoods.cluster('apple', [customMilk]);
+assert.ok(appleCluster.every((food) => food.id !== 'custom-test-milk') || appleCluster.some((food) => food.id === 'apple'), '不相关自定义食品不得挤掉苹果官方条目');
+assert.ok(appleCluster.some((food) => food.id === 'apple'), '苹果官方条目必须保留');
+assert.ok(!appleCluster.some((food) => food.id === 'custom-test-milk'), '不相关自定义食品不得并进苹果');
+assert.ok(catalog.foodCluster('milk-full-cream', [customMilk]).some((food) => food.id === 'milk-full-cream'), '内存目录在有自定义食品时仍应保留官方牛奶');
+assert.ok(catalog.foodCluster('egg-boiled', [customMilk]).some((food) => food.id === 'egg-boiled'), '内存目录在有自定义食品时仍应保留官方鸡蛋');
+
+const bulkUserMilk = {
+  ...foodsById['milk-full-cream'],
+  id: 'user-bulk-milk',
+  barcode: '11111111111119',
+  tags: ['custom', 'user-label'],
+  source: { ...foodsById['milk-full-cream'].source, dataset: 'user-entry', type: 'label', label: '用户录入', confidence: 'estimate' },
+};
+const withUserLabel = [...foods, bulkUserMilk];
+const userLabelIndex = groups.buildClusterIndex(withUserLabel);
+assert.ok(!groups.clusterMembers(withUserLabel, userLabelIndex, 'milk-full-cream').some((food) => food.id === 'user-bulk-milk'), '用户批量标签不得自动并进官方牛奶');
+assert.ok(groups.clusterMembers(withUserLabel, userLabelIndex, 'user-bulk-milk').every((food) => food.id === 'user-bulk-milk' || food.source.dataset === 'user-entry'), '用户批量标签应保持独立来源');
+catalogDb.close();
+
 const bokChoyNamed = foods.filter((food) => food.nameZh === '清炒小白菜');
 assert.ok(bokChoyNamed.length >= 1 && bokChoyNamed.length <= 8, '清炒小白菜应只覆盖小白菜/bok choy');
 assert.ok(bokChoyNamed.every((food) => food.id === 'bok-choy-stir-fry' || /bok choy|pak choy/i.test(food.nameEn)), '清炒小白菜不得套到普通蔬菜炒菜');
@@ -230,8 +306,12 @@ assert.deepEqual(validation.validateFoodCatalog(foods), [], '开发食品目录�
 
 const persist = await import('../src/domain/persisted-state.ts');
 assert.equal(persist.parsePersistedState(null).snapshot.entries.length, 0, '空存储应得到默认快照');
+assert.equal(persist.parsePersistedState(null).status, 'empty', '没有历史数据应标记为空');
+assert.equal(persist.parsePersistedState(null).writable, true, '首次使用允许写入');
 assert.equal(persist.parsePersistedState('{').error, 'invalid-json', '损坏 JSON 应标记恢复');
+assert.equal(persist.parsePersistedState('{').writable, false, '读取失败时不得写入空状态');
 assert.equal(persist.parsePersistedState('[]').error, 'not-object', '非对象 JSON 应标记恢复');
+assert.equal(persist.parsePersistedState('[]').writable, false, '非对象 JSON 不得覆盖原存储');
 
 const legacy = persist.parsePersistedState(JSON.stringify({
   entries: [
@@ -281,4 +361,18 @@ await assert.rejects(() => writer.enqueue('fail'), /disk full/, '写入失败应
 await writer.enqueue('recovered');
 assert.equal(writes.at(-1), 'recovered', '失败后队列应能继续写入');
 
-console.log('Domain checks passed: nutrition math, shared meals, recipes vs foods, sources, catalog quality, and persistence.');
+const backup = await import('../src/domain/backup.ts');
+const exported = backup.serializeBackupFile(legacy.snapshot, '2026-09-06T00:00:00.000Z');
+const inspected = backup.inspectBackup(exported);
+assert.equal(inspected.ok, true, '当前快照应能做成备份');
+if (inspected.ok) {
+  assert.equal(inspected.snapshot.entries[0].foodId, 'apple');
+  assert.match(backup.describeBackupPreview(inspected.preview), /饮食记录 1 条/);
+  const csv = backup.diaryToCsv(inspected.snapshot.entries, foodsById);
+  assert.match(csv, /apple/);
+  assert.match(csv, /date,meal,foodId/);
+}
+assert.equal(backup.inspectBackup('{').ok, false, '损坏备份应被拒绝');
+assert.equal(backup.inspectBackup('[]').ok, false, '非对象备份应被拒绝');
+
+console.log('Domain checks passed: nutrition math, shared meals, recipes vs foods, sources, catalog quality, persistence, and backup.');

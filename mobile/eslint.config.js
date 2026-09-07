@@ -8,6 +8,7 @@ module.exports = defineConfig([
     'android/*',
     'ios/*',
     'src/data/generated/*',
+    'assets/catalog/*',
   ]),
   expoConfig,
 ]);

@@ -37,13 +37,21 @@ export function validateFoodDraft(draft: FoodDraft): FoodValidationResult {
   }
 
   const nutrients = Object.fromEntries(nutrientKeys.map((key) => {
-    const value = draft.nutrientsPer100g[key] ?? 0;
-    if (!finiteNonNegative(value)) errors.push(`${key}必须是非负数。`);
-    return [key, finiteNonNegative(value) ? value : 0];
+    const raw = draft.nutrientsPer100g[key];
+    if (key === 'energyKcal') {
+      if (!finiteNonNegative(raw) || raw <= 0) errors.push('请填写每100克能量。');
+      return [key, finiteNonNegative(raw) ? raw : 0];
+    }
+    if (raw == null || raw === ('' as unknown)) return [key, null];
+    if (!finiteNonNegative(raw)) errors.push(`${key}必须是非负数。`);
+    return [key, finiteNonNegative(raw) ? raw : null];
   })) as Nutrients;
 
   if (nutrients.energyKcal > 1000) errors.push('每100克能量不能超过1000千卡。');
-  if (nutrients.proteinG > 100 || nutrients.carbsG > 100 || nutrients.fatG > 100 || nutrients.fibreG > 100) {
+  if (nutrients.proteinG != null && nutrients.proteinG > 100
+    || nutrients.carbsG != null && nutrients.carbsG > 100
+    || nutrients.fatG != null && nutrients.fatG > 100
+    || nutrients.fibreG != null && nutrients.fibreG > 100) {
     errors.push('每100克宏量营养素不能超过100克。');
   }
 
@@ -100,7 +108,12 @@ export function validateFoodCatalog(foods: Food[]): string[] {
       barcodes.add(food.barcode);
     }
     nutrientKeys.forEach((key) => {
-      if (!finiteNonNegative(food.nutrientsPer100g[key])) errors.push(`食品${food.id}的${key}无效。`);
+      const value = food.nutrientsPer100g[key];
+      if (key === 'energyKcal') {
+        if (!finiteNonNegative(value)) errors.push(`食品${food.id}的能量无效。`);
+        return;
+      }
+      if (value != null && !finiteNonNegative(value)) errors.push(`食品${food.id}的${key}无效。`);
     });
   });
 

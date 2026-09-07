@@ -1,8 +1,10 @@
 import { router } from 'expo-router';
 import { Alert, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
 import { Card, LoadingScreen, PrimaryButton, Screen, SectionTitle, TextButton } from '@/components/ui';
+import { StorageRecoveryBanner } from '@/components/storage-recovery-banner';
 import { colors, spacing } from '@/constants/theme';
-import { createFoodIndex } from '@/data/catalog';
+import { useFoodRepository } from '@/data/food-repository-context';
 import {
   closestPortionLabel, displayFoodName, entriesForDate, foodGroupServes, formatEnergy, formatEnergyPair, formatNumber,
   latestMealBefore, localDateKey, mealCardsForDate, mealItemNames, mealLabels, oilLevelLabels, shiftDateKey, totalForEntries,
@@ -13,18 +15,28 @@ import type { MealType } from '@/types/nutrition';
 const meals: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 
 export default function LogScreen() {
-  const { entries, profile, customFoods, hydrated, deleteEntry, copyEntry, copyMeal, saveRecipeFromMeal } = useNutrition();
+  const { entries, profile, customFoods, hydrated, deleteEntry, copyMeal, saveRecipeFromMeal, undoDelete, undoLabel } = useNutrition();
+  const foods = useFoodRepository();
+  const [dateKey, setDateKey] = useState(localDateKey());
   if (!hydrated) return <LoadingScreen />;
   const todayKey = localDateKey();
-  const yesterdayKey = shiftDateKey(todayKey, -1);
-  const today = entriesForDate(entries, todayKey);
-  const foodIndex = createFoodIndex(customFoods);
+  const yesterdayKey = shiftDateKey(dateKey, -1);
+  const today = entriesForDate(entries, dateKey);
+  const foodIndex = foods.getByIds(entries.map((entry) => entry.foodId), customFoods);
   const total = totalForEntries(today, foodIndex);
   const groups = foodGroupServes(today, foodIndex);
-  const cards = mealCardsForDate(entries, todayKey);
+  const cards = mealCardsForDate(entries, dateKey);
+  const isToday = dateKey === todayKey;
 
   return <Screen>
-    <View><Text style={styles.title}>今天的饮食</Text><Text style={styles.subtitle}>一餐可以包含多道菜。合菜份额和用油会算进个人摄入，而不是整盘热量。</Text></View>
+    <StorageRecoveryBanner />
+    <View><Text style={styles.title}>{isToday ? '今天的饮食' : `${dateKey} 补记`}</Text><Text style={styles.subtitle}>可以改份量、餐次和日期。删除后短时间可撤销。</Text></View>
+    <View style={styles.dateRow}>
+      <TextButton label="前一天" onPress={() => setDateKey(shiftDateKey(dateKey, -1))} />
+      <Text style={styles.dateLabel}>{isToday ? '今天' : dateKey}</Text>
+      <TextButton label={dateKey < todayKey ? '后一天' : '今天'} onPress={() => setDateKey(dateKey < todayKey ? shiftDateKey(dateKey, 1) : todayKey)} />
+    </View>
+    {undoLabel ? <Card style={styles.yesterdayCard}><Text style={styles.yesterdayTitle}>{undoLabel}</Text><TextButton label="撤销" onPress={undoDelete} /></Card> : null}
     <Card style={styles.summary}>
       <View style={styles.energyHeader}><View><Text style={styles.summaryLabel}>总能量</Text><Text style={styles.summaryEnergy}>{formatEnergy(total.energyKcal, profile.energyUnit)}</Text></View><Text style={styles.itemCount}>{today.length} 项</Text></View>
       <Text style={styles.pair}>{formatEnergyPair(total.energyKcal)}</Text>
@@ -32,16 +44,16 @@ export default function LogScreen() {
     </Card>
 
     {meals.map((meal) => {
-      const previous = latestMealBefore(entries, meal, todayKey);
+      const previous = latestMealBefore(entries, meal, dateKey);
       const mealCards = cards.filter((card) => card.meal === meal);
       const mealEntries = today.filter((entry) => entry.meal === meal);
       const mealTotal = totalForEntries(mealEntries, foodIndex);
       return <View key={meal} style={styles.mealSection}>
-        <SectionTitle action={<View style={styles.mealActions}><Text style={styles.mealEnergy}>{mealEntries.length ? formatEnergy(mealTotal.energyKcal, profile.energyUnit) : ''}</Text>{mealEntries.length > 0 && <TextButton label="复制本餐" onPress={() => copyMeal(meal, todayKey)} />}</View>}>{mealLabels[meal]}</SectionTitle>
+        <SectionTitle action={<View style={styles.mealActions}><Text style={styles.mealEnergy}>{mealEntries.length ? formatEnergy(mealTotal.energyKcal, profile.energyUnit) : ''}</Text>{mealEntries.length > 0 && <TextButton label="复制本餐" onPress={() => copyMeal(meal, dateKey, todayKey)} />}</View>}>{mealLabels[meal]}</SectionTitle>
         {previous && localDateKey(new Date(previous.entries[0].recordedAt)) === yesterdayKey ? (
           <Card style={styles.yesterdayCard}>
-            <Text style={styles.yesterdayTitle}>昨天：{mealItemNames(previous.entries, foodIndex)}</Text>
-            <TextButton label="整餐复制到今天" onPress={() => copyMeal(meal, previous.dateKey)} />
+            <Text style={styles.yesterdayTitle}>上一天：{mealItemNames(previous.entries, foodIndex)}</Text>
+            <TextButton label={isToday ? '整餐复制到今天' : '整餐复制到这天'} onPress={() => copyMeal(meal, previous.dateKey, dateKey)} />
           </Card>
         ) : null}
         <Card style={styles.mealCard}>
@@ -62,19 +74,19 @@ export default function LogScreen() {
                       {oil ? ` · ${oil}` : ''}
                     </Text>
                   </View>
-                  <View style={styles.entryActions}><TextButton label="复制" onPress={() => copyEntry(entry.id)} /><TextButton label="删除" tone="danger" onPress={() => deleteEntry(entry.id)} /></View>
+                  <View style={styles.entryActions}><TextButton label="修改" onPress={() => router.push({ pathname: '/log-entry/[id]', params: { id: entry.id } })} /><TextButton label="删除" tone="danger" onPress={() => deleteEntry(entry.id)} /></View>
                 </View>;
               })}
             </View>
           ))}
         </Card>
         {mealEntries.length > 0 ? <TextButton label="存成家庭菜谱" onPress={() => {
-          const recipe = saveRecipeFromMeal(meal, todayKey);
+          const recipe = saveRecipeFromMeal(meal, dateKey);
           if (recipe) Alert.alert('已保存', `${recipe.nameZh} 已加入家庭菜谱，下次可以整餐复用。`);
         }} /> : null}
       </View>;
     })}
-    <PrimaryButton label="继续添加食物" onPress={() => router.push('/(tabs)/search')} />
+    <PrimaryButton label={isToday ? '继续添加食物' : '补记食物'} onPress={() => router.push({ pathname: '/(tabs)/search', params: { dateKey } })} />
   </Screen>;
 }
 
@@ -85,6 +97,7 @@ const styles = StyleSheet.create({
   groupLine: { color: colors.ink, fontSize: 12, lineHeight: 18 },
   itemCount: { color: colors.brand, fontSize: 12, fontWeight: '700', backgroundColor: colors.brandSoft, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
   mealSection: { gap: spacing.sm }, mealActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md }, mealEnergy: { color: colors.inkMuted, fontSize: 12, fontWeight: '600' }, mealCard: { paddingVertical: 3 },
+  dateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, dateLabel: { color: colors.ink, fontSize: 15, fontWeight: '700' },
   yesterdayCard: { backgroundColor: colors.brandSoft, borderColor: '#C1DBC8', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
   yesterdayTitle: { flex: 1, color: colors.ink, fontSize: 13, fontWeight: '600' },
   cardBlock: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, marginBottom: spacing.sm, paddingBottom: spacing.sm },

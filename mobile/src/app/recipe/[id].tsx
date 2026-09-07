@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Card, PrimaryButton, Screen, SourceBadge } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
-import { createFoodIndex } from '@/data/catalog';
+import { useFoodRepository } from '@/data/food-repository-context';
 import { findRecipe, starterRecipes } from '@/data/recipes';
 import {
   defaultPortionShare, displayFoodName, displaySourceLabel, formatEnergyPair, formatNumber, mealItemNames, mealLabels, oilLevelLabels,
@@ -21,8 +21,12 @@ export function generateStaticParams() {
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { recipes, customFoods, logRecipe } = useNutrition();
-  const recipe = findRecipe(id, recipes);
-  const foodIndex = createFoodIndex(customFoods);
+  const foods = useFoodRepository();
+  const recipe = useMemo(() => findRecipe(id, recipes), [id, recipes]);
+  const foodIndex = useMemo(
+    () => foods.getByIds(recipe?.items.map((item) => item.foodId) ?? [], customFoods),
+    [customFoods, foods, recipe],
+  );
   const [meal, setMeal] = useState<MealType>(() => suggestedMealSlot());
   const [sharedWith, setSharedWith] = useState(1);
   const [portionShare, setPortionShare] = useState(1);
@@ -42,7 +46,7 @@ export default function RecipeDetailScreen() {
 
   return <Screen>
     <View style={styles.heading}>
-      <View style={styles.titleRow}><Text style={styles.title}>{recipe.nameZh}</Text><SourceBadge confidence={recipe.source.confidence} /></View>
+      <View style={styles.titleRow}><Text style={styles.title}>{recipe.nameZh}</Text><SourceBadge confidence={recipe.source.confidence} dataset={recipe.source.dataset} /></View>
       <Text style={styles.subtitle}>{recipe.nameEn} · 家庭菜谱，不是自定义单品</Text>
     </View>
     <Card style={styles.sourceCard}>

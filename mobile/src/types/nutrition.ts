@@ -3,9 +3,26 @@ export type FoodCategory = 'staple' | 'protein' | 'vegetable' | 'fruit' | 'dairy
 export type EnergyUnit = 'kj' | 'kcal';
 export type OilLevel = 'light' | 'normal' | 'restaurant';
 
+/** `null` means the source did not provide this nutrient. Do not display null as 0. */
+export type NutrientValue = number | null;
+
 export type Nutrients = {
-  energyKcal: number; proteinG: number; carbsG: number; fatG: number; fibreG: number;
-  sodiumMg: number; saturatedFatG: number; sugarG: number;
+  energyKcal: number;
+  proteinG: NutrientValue;
+  carbsG: NutrientValue;
+  fatG: NutrientValue;
+  fibreG: NutrientValue;
+  sodiumMg: NutrientValue;
+  saturatedFatG: NutrientValue;
+  sugarG: NutrientValue;
+};
+
+export type PortionMemory = {
+  servings: number;
+  meal: MealType;
+  oilLevel?: OilLevel;
+  sharedWith?: number;
+  portionShare?: number;
 };
 
 export type CatalogStatus = 'unseen' | 'logged' | 'verified';
@@ -92,6 +109,8 @@ export type Recipe = {
   loggedCount: number;
   source: FoodSource;
   kind: 'household';
+  defaultSharedWith?: number;
+  defaultPortionShare?: number;
 };
 
 export type NutritionTargets = {

@@ -85,6 +85,21 @@ export function sameCatalogItem(a: Food, b: Food): boolean {
   return [...smaller].every((token) => larger.has(token));
 }
 
+/** Custom foods are extra sources only; they must not replace official cluster members. */
+export function attachCustomSources(officialMembers: Food[], customFoods: Food[] = []): Food[] {
+  if (!officialMembers.length) return customFoods.slice();
+  if (!customFoods.length) return officialMembers;
+  const seen = new Set(officialMembers.map((food) => food.id));
+  const extras = customFoods.filter((custom) => {
+    if (seen.has(custom.id)) return false;
+    return officialMembers.some((member) =>
+      (Boolean(custom.barcode) && custom.barcode === member.barcode)
+      || sameCatalogItem(member, custom),
+    );
+  });
+  return extras.length ? [...officialMembers, ...extras] : officialMembers;
+}
+
 export function sourcePriority(food: Food): number {
   const confidence = food.source.confidence === 'high' ? 300 : food.source.confidence === 'medium' ? 200 : 100;
   const datasetScore: Record<string, number> = {
@@ -116,7 +131,8 @@ export function shortSourceTitle(food: Food): string {
 }
 
 function isAnchor(food: Food): boolean {
-  return !food.tags.includes('imported') && !food.tags.includes('fsanz') && !food.tags.includes('overseas');
+  return !food.tags.includes('imported') && !food.tags.includes('fsanz') && !food.tags.includes('overseas')
+    && !food.tags.includes('off-bulk') && food.source.dataset !== 'user-entry';
 }
 
 export function sanitizeInheritedNames(foods: Food[]): Food[] {
@@ -159,6 +175,7 @@ export function inferChineseNames(foods: Food[]): Food[] {
     if (key && !familyToZh.has(key)) familyToZh.set(key, seed.nameZh);
   }
   return foods.map((food) => {
+    if (food.tags.includes('off-bulk') || food.source.dataset === 'user-entry') return food;
     if (/[\u4e00-\u9fff]/.test(food.nameZh) && food.nameZh !== food.nameEn) return food;
     const key = familyKey(food);
     const nameZh = (key ? familyToZh.get(key) ?? chineseFromFamilyParts(key, familyToZh) : undefined)
@@ -258,7 +275,7 @@ export function buildClusterIndex(foods: Food[]): Map<string, string> {
   }
 
   for (const food of foods) {
-    if (isAnchor(food)) continue;
+    if (isAnchor(food) || food.source.dataset === 'user-entry') continue;
     let best: Food | undefined;
     let bestOverlap = -1;
     for (const anchor of anchors) {
@@ -279,6 +296,7 @@ export function buildClusterIndex(foods: Food[]): Map<string, string> {
   }
   const familyGroups = new Map<string, string[]>();
   for (const food of foods) {
+    if (food.source.dataset === 'user-entry' || food.tags.includes('off-bulk')) continue;
     const key = familyKey(food);
     if (!key) continue;
     const list = familyGroups.get(key) ?? [];

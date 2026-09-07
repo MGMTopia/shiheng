@@ -3,11 +3,13 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Card, PrimaryButton, Screen, SourceBadge, TextButton } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
-import { featuredFoods } from '@/data/foods';
-import { createFoodIndex, foodCluster, statusForFood } from '@/data/catalog';
+import { packagedFoods } from '@/data/packaged-foods';
+import { foods as seedFoods } from '@/data/seed-foods';
+import { useFoodRepository } from '@/data/food-repository-context';
+import { statusForFood } from '@/data/catalog-constants';
 import { pickRepresentative, shortSourceTitle, sourcePriority } from '@/domain/catalog-groups';
 import {
-  applyOilLevel, catalogStatusLabels, compositionEstimate, confidenceLabels, defaultPortionShare, displayFoodName, displaySourceLabel,
+  applyOilLevel, catalogStatusLabels, compositionEstimate, confidenceLabels, dateKeyToRecordedAt, defaultPortionShare, displayFoodName, displaySourceLabel,
   foodSupportsOilLevel, formatEnergyPair, formatNumber, mealLabels, nutrientsForServing, oilLevelLabels,
   portionChoices, regionLabels, scaleNutrients, suggestedMealSlot,
 } from '@/domain/nutrition';
@@ -18,14 +20,18 @@ const meals: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 const oilLevels: OilLevel[] = ['light', 'normal', 'restaurant'];
 
 export function generateStaticParams() {
-  return featuredFoods.map((food) => ({ id: food.id }));
+  return [...seedFoods, ...packagedFoods].map((food) => ({ id: food.id }));
 }
 
 export default function FoodDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const { addEntry, customFoods, favouriteFoodIds, entries, verifiedFoodIds, toggleFavourite, toggleVerified } = useNutrition();
-  const foodIndex = createFoodIndex(customFoods);
-  const members = useMemo(() => foodCluster(id, customFoods), [customFoods, id]);
+  const { id, dateKey, replaceEntryId } = useLocalSearchParams<{ id: string; dateKey?: string; replaceEntryId?: string }>();
+  const { addEntry, updateEntry, customFoods, favouriteFoodIds, entries, verifiedFoodIds, toggleFavourite, toggleVerified, portionMemory } = useNutrition();
+  const foods = useFoodRepository();
+  const members = useMemo(() => foods.cluster(id, customFoods), [customFoods, foods, id]);
+  const foodIndex = useMemo(() => foods.getByIds([
+    id,
+    ...members.flatMap((food) => [food.id, ...(food.composition?.ingredients.map((item) => item.foodId) ?? [])]),
+  ], customFoods), [customFoods, foods, id, members]);
   const defaultId = useMemo(() => (members.length ? pickRepresentative(members).id : id), [id, members]);
   const [activeId, setActiveId] = useState(defaultId);
   const [seenDefaultId, setSeenDefaultId] = useState(defaultId);
@@ -34,25 +40,41 @@ export default function FoodDetailScreen() {
     setActiveId(defaultId);
   }
   const food = foodIndex[activeId] ?? foodIndex[id];
-  const [servings, setServings] = useState(1);
-  const [meal, setMeal] = useState<MealType>(() => suggestedMealSlot());
-  const [oilLevel, setOilLevel] = useState<OilLevel>('normal');
-  const [sharedWith, setSharedWith] = useState(1);
-  const [portionShare, setPortionShare] = useState(1);
+  const remembered = food ? portionMemory[food.id] : undefined;
+  const [servings, setServings] = useState(remembered?.servings ?? 1);
+  const [meal, setMeal] = useState<MealType>(() => remembered?.meal ?? suggestedMealSlot());
+  const [oilLevel, setOilLevel] = useState<OilLevel>(remembered?.oilLevel ?? 'normal');
+  const [sharedWith, setSharedWith] = useState(remembered?.sharedWith ?? 1);
+  const [portionShare, setPortionShare] = useState(remembered?.portionShare ?? 1);
+  const [per100, setPer100] = useState(false);
   const showOil = food ? foodSupportsOilLevel(food) : false;
   const titleFood = members.find((item) => /[\u4e00-\u9fff]/.test(item.nameZh) && item.nameZh !== item.nameEn) ?? food;
   const sources = useMemo(() => members.slice().sort((a, b) => sourcePriority(b) - sourcePriority(a)), [members]);
   const nutrients = food
     ? scaleNutrients(applyOilLevel(nutrientsForServing(food, servings), oilLevel, showOil), portionShare)
     : null;
+  const displayNutrients = food
+    ? (per100 ? food.nutrientsPer100g : nutrients)
+    : null;
 
-  if (!food || !nutrients) return <Screen><Card><Text style={styles.notFound}>找不到这条食物记录。</Text></Card></Screen>;
+  if (!food || !nutrients || !displayNutrients) return <Screen><Card><Text style={styles.notFound}>找不到这条食物记录。</Text></Card></Screen>;
   const status = statusForFood(food.id, entries, verifiedFoodIds);
   const estimate = compositionEstimate(food, foodIndex);
   const catalogServing = nutrientsForServing(food, 1);
   const save = () => {
-    addEntry({ foodId: food.id, servings, meal, oilLevel: showOil ? oilLevel : undefined, sharedWith, portionShare });
-    router.replace('/(tabs)');
+    const payload = {
+      foodId: food.id,
+      servings,
+      meal,
+      oilLevel: showOil ? oilLevel : undefined,
+      sharedWith,
+      portionShare,
+      recordedAt: dateKey ? dateKeyToRecordedAt(Array.isArray(dateKey) ? dateKey[0] : dateKey) : undefined,
+    };
+    const replaceId = Array.isArray(replaceEntryId) ? replaceEntryId[0] : replaceEntryId;
+    if (replaceId) updateEntry(replaceId, payload);
+    else addEntry({ ...payload, dateKey: Array.isArray(dateKey) ? dateKey[0] : dateKey });
+    router.replace(dateKey ? '/(tabs)/log' : '/(tabs)');
   };
   const changePeople = (next: number) => {
     const people = Math.min(8, Math.max(1, next));
@@ -61,14 +83,14 @@ export default function FoodDetailScreen() {
   };
 
   return <Screen>
-    <View style={styles.heading}><View style={styles.titleRow}><Text style={styles.title}>{displayFoodName(titleFood ?? food)}</Text><SourceBadge confidence={food.source.confidence} /><Pressable onPress={() => toggleFavourite(food.id)} style={styles.favoriteButton}><Text style={styles.favoriteText}>{favouriteFoodIds.includes(food.id) ? '★ 已收藏' : '☆ 收藏'}</Text></Pressable></View><Text style={styles.subtitle}>{[food.nameEn, food.category === 'mixed' ? '家常菜' : food.source.region === 'US' ? '美国对照' : '澳洲食物'].join(' · ')}</Text></View>
+    <View style={styles.heading}><View style={styles.titleRow}><Text style={styles.title}>{displayFoodName(titleFood ?? food)}</Text><SourceBadge confidence={food.source.confidence} dataset={food.source.dataset} /><Pressable onPress={() => toggleFavourite(food.id)} style={styles.favoriteButton}><Text style={styles.favoriteText}>{favouriteFoodIds.includes(food.id) ? '★ 已收藏' : '☆ 收藏'}</Text></Pressable></View><Text style={styles.subtitle}>{[food.nameEn, food.category === 'mixed' ? '家常菜' : food.source.region === 'US' ? '美国对照' : '澳洲食物'].join(' · ')}</Text></View>
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>资料来源</Text>
       {sources.map((item) => {
         const active = item.id === food.id;
         const per100 = item.nutrientsPer100g;
         return <Pressable key={item.id} onPress={() => setActiveId(item.id)} style={[styles.sourceChoice, active && styles.sourceChoiceActive]}>
-          <View style={styles.sourceHeader}><Text style={styles.sourceLabel}>{shortSourceTitle(item)}</Text><SourceBadge confidence={item.source.confidence} /></View>
+          <View style={styles.sourceHeader}><Text style={styles.sourceLabel}>{shortSourceTitle(item)}</Text><SourceBadge confidence={item.source.confidence} dataset={item.source.dataset} /></View>
           <Text style={styles.sourceText}>{displayFoodName(item) !== item.nameEn ? `${displayFoodName(item)} · ${item.nameEn}` : item.nameEn}</Text>
           <Text style={styles.sourceDate}>每100g：{formatEnergyPair(per100.energyKcal)} · 蛋白质 {formatNumber(per100.proteinG, 1)}g · 钠 {formatNumber(per100.sodiumMg)}mg</Text>
           {item.brand ? <Text style={styles.sourceDate}>品牌：{item.brand}{item.stores?.length ? ` · 有售：${item.stores.map((store) => store === 'woolworths' ? 'Woolworths' : 'Coles').join(' / ')}` : ''}</Text> : null}
@@ -88,9 +110,11 @@ export default function FoodDetailScreen() {
     </Card> : null}
 
     <View style={styles.section}><Text style={styles.sectionLabel}>份量</Text><Card style={styles.servingCard}>
-      <View style={styles.servingCopy}><Text style={styles.servingName} numberOfLines={2}>{food.servingLabel}</Text><Text style={styles.servingGrams}>{food.servingGrams}g × {servings}</Text></View>
+      <View style={styles.servingCopy}><Text style={styles.servingName} numberOfLines={2}>{food.servingLabel}</Text><Text style={styles.servingGrams}>{food.servingGrams}g × {servings}{remembered ? ' · 上次份量' : ''}</Text></View>
       <View style={styles.stepper}><Pressable onPress={() => setServings((value) => Math.max(0.5, value - 0.5))} style={styles.stepButton}><Text style={styles.stepText}>−</Text></Pressable><Text style={styles.servingValue}>{servings}</Text><Pressable onPress={() => setServings((value) => Math.min(5, value + 0.5))} style={styles.stepButton}><Text style={styles.stepText}>＋</Text></Pressable></View>
-    </Card></View>
+    </Card>
+    <View style={styles.chips}>{[0.5, 1, 1.5, 2].map((value) => <Pressable key={value} onPress={() => setServings(value)} style={[styles.chip, servings === value && styles.chipActive]}><Text style={[styles.chipText, servings === value && styles.chipTextActive]}>{value} 份</Text></Pressable>)}</View>
+    </View>
 
     {showOil ? <View style={styles.section}><Text style={styles.sectionLabel}>用油</Text><View style={styles.chips}>{oilLevels.map((level) => <Pressable key={level} onPress={() => setOilLevel(level)} style={[styles.chip, oilLevel === level && styles.chipActive]}><Text style={[styles.chipText, oilLevel === level && styles.chipTextActive]}>{oilLevelLabels[level]}</Text></Pressable>)}</View></View> : null}
 
@@ -106,12 +130,26 @@ export default function FoodDetailScreen() {
 
     <View style={styles.section}><Text style={styles.sectionLabel}>记录到</Text><View style={styles.meals}>{meals.map((item) => <Pressable key={item} onPress={() => setMeal(item)} style={[styles.meal, meal === item && styles.mealActive]}><Text style={[styles.mealText, meal === item && styles.mealTextActive]}>{mealLabels[item]}</Text></Pressable>)}</View></View>
 
-    <Card><Text style={styles.sectionLabel}>我的份额估算</Text><Text style={styles.shareHint}>{formatEnergyPair(nutrients.energyKcal)}</Text><View style={styles.nutrientGrid}>
-      {[['能量 kJ', formatNumber(nutrients.energyKcal * 4.184), ''], ['能量 kcal', formatNumber(nutrients.energyKcal), ''], ['蛋白质', formatNumber(nutrients.proteinG, 1), 'g'], ['脂肪', formatNumber(nutrients.fatG, 1), 'g'], ['碳水', formatNumber(nutrients.carbsG, 1), 'g'], ['钠', formatNumber(nutrients.sodiumMg), 'mg']].map(([label, value, unit]) => <View key={label} style={styles.nutrient}><Text style={styles.nutrientLabel}>{label}</Text><Text style={styles.nutrientValue}>{value}<Text style={styles.nutrientUnit}>{unit ? ` ${unit}` : ''}</Text></Text></View>)}
-    </View></Card>
+    <Card><View style={styles.sourceHeader}><Text style={styles.sectionLabel}>营养成分</Text><Pressable onPress={() => setPer100((value) => !value)}><Text style={styles.sourceLabel}>{per100 ? '每100g' : '当前份量'}</Text></Pressable></View>
+      <Text style={styles.shareHint}>{formatEnergyPair(displayNutrients.energyKcal)}</Text>
+      <View style={styles.nutrientGrid}>
+        {([
+          ['能量 kJ', displayNutrients.energyKcal == null ? null : displayNutrients.energyKcal * 4.184, ''],
+          ['能量 kcal', displayNutrients.energyKcal, ''],
+          ['蛋白质', displayNutrients.proteinG, 'g'],
+          ['脂肪', displayNutrients.fatG, 'g'],
+          ['饱和脂肪', displayNutrients.saturatedFatG, 'g'],
+          ['碳水', displayNutrients.carbsG, 'g'],
+          ['糖', displayNutrients.sugarG, 'g'],
+          ['膳食纤维', displayNutrients.fibreG, 'g'],
+          ['钠', displayNutrients.sodiumMg, 'mg'],
+        ] as const).map(([label, value, unit]) => <View key={label} style={styles.nutrient}><Text style={styles.nutrientLabel}>{label}</Text><Text style={styles.nutrientValue}>{value == null ? '暂无数据' : <>{formatNumber(value, label.includes('能量') ? 0 : 1)}{unit ? <Text style={styles.nutrientUnit}>{` ${unit}`}</Text> : null}</>}</Text></View>)}
+      </View>
+      <Text style={styles.sourceDate}>{displaySourceLabel(food.source)} · {regionLabels[food.source.region]} · 更新 {food.source.updatedAt}</Text>
+    </Card>
     {(food.source.confidence === 'estimate' || showOil) && <Text style={styles.estimateNote}>这是个人摄入估算，不是整盘菜热量。用油、酱汁和实际夹取量都会改变结果。</Text>}
     {status !== 'unseen' && <TextButton label={status === 'verified' ? '取消本机核对' : '标记为已核对（本机确认，不是官方审核）'} onPress={() => toggleVerified(food.id)} />}
-    <PrimaryButton label={`添加到${mealLabels[meal]}`} onPress={save} />
+    <PrimaryButton label={replaceEntryId ? `替换为${mealLabels[meal]}` : `添加到${mealLabels[meal]}`} onPress={save} />
   </Screen>;
 }
 

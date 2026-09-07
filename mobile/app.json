@@ -45,7 +45,20 @@
           "imageWidth": 180
         }
       ],
-      "./plugins/with-android-data-cleanup"
+      "./plugins/with-android-data-cleanup",
+      [
+        "expo-sqlite",
+        {
+          "enableFTS": true
+        }
+      ],
+      [
+        "expo-file-system",
+        {
+          "enableFileSharing": true
+        }
+      ],
+      "expo-sharing"
     ],
     "extra": {
       "releaseChannel": "preview"

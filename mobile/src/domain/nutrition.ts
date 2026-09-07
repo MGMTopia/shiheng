@@ -11,6 +11,32 @@ export const emptyNutrients = (): Nutrients => ({
   energyKcal: 0, proteinG: 0, carbsG: 0, fatG: 0, fibreG: 0, sodiumMg: 0, saturatedFatG: 0, sugarG: 0,
 });
 
+export function nutrientNumber(value: number | null | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+export function hasNutrientValue(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function addNullable(a: number | null | undefined, b: number | null | undefined): number | null {
+  if (a == null && b == null) return null;
+  return nutrientNumber(a) + nutrientNumber(b);
+}
+
+function mapNutrients(nutrients: Nutrients, map: (value: number | null, key: keyof Nutrients) => number | null): Nutrients {
+  return {
+    energyKcal: map(nutrients.energyKcal, 'energyKcal') ?? 0,
+    proteinG: map(nutrients.proteinG, 'proteinG'),
+    carbsG: map(nutrients.carbsG, 'carbsG'),
+    fatG: map(nutrients.fatG, 'fatG'),
+    fibreG: map(nutrients.fibreG, 'fibreG'),
+    sodiumMg: map(nutrients.sodiumMg, 'sodiumMg'),
+    saturatedFatG: map(nutrients.saturatedFatG, 'saturatedFatG'),
+    sugarG: map(nutrients.sugarG, 'sugarG'),
+  };
+}
+
 export const oilLevelFactors: Record<OilLevel, { energy: number; fat: number; sodium: number }> = {
   light: { energy: 0.88, fat: 0.72, sodium: 0.9 },
   normal: { energy: 1, fat: 1, sodium: 1 },
@@ -57,15 +83,24 @@ export const portionChoices: { label: string; value: number }[] = [
 
 export function nutrientsForServing(food: Food, servings = 1): Nutrients {
   const multiplier = (food.servingGrams / 100) * servings;
-  return Object.fromEntries(Object.entries(food.nutrientsPer100g).map(([key, value]) => [key, value * multiplier])) as Nutrients;
+  return mapNutrients(food.nutrientsPer100g, (value) => value == null ? null : value * multiplier);
 }
 
 export function addNutrients(a: Nutrients, b: Nutrients): Nutrients {
-  return Object.fromEntries(Object.keys(a).map((key) => [key, a[key as keyof Nutrients] + b[key as keyof Nutrients]])) as Nutrients;
+  return {
+    energyKcal: nutrientNumber(a.energyKcal) + nutrientNumber(b.energyKcal),
+    proteinG: addNullable(a.proteinG, b.proteinG),
+    carbsG: addNullable(a.carbsG, b.carbsG),
+    fatG: addNullable(a.fatG, b.fatG),
+    fibreG: addNullable(a.fibreG, b.fibreG),
+    sodiumMg: addNullable(a.sodiumMg, b.sodiumMg),
+    saturatedFatG: addNullable(a.saturatedFatG, b.saturatedFatG),
+    sugarG: addNullable(a.sugarG, b.sugarG),
+  };
 }
 
 export function scaleNutrients(nutrients: Nutrients, factor: number): Nutrients {
-  return Object.fromEntries(Object.entries(nutrients).map(([key, value]) => [key, value * factor])) as Nutrients;
+  return mapNutrients(nutrients, (value) => value == null ? null : value * factor);
 }
 
 export function foodSupportsOilLevel(food: Food): boolean {
@@ -82,10 +117,10 @@ export function applyOilLevel(nutrients: Nutrients, oilLevel: OilLevel, applicab
   const factor = oilLevelFactors[oilLevel];
   return {
     ...nutrients,
-    energyKcal: nutrients.energyKcal * factor.energy,
-    fatG: nutrients.fatG * factor.fat,
-    saturatedFatG: nutrients.saturatedFatG * factor.fat,
-    sodiumMg: nutrients.sodiumMg * factor.sodium,
+    energyKcal: nutrientNumber(nutrients.energyKcal) * factor.energy,
+    fatG: nutrients.fatG == null ? null : nutrients.fatG * factor.fat,
+    saturatedFatG: nutrients.saturatedFatG == null ? null : nutrients.saturatedFatG * factor.fat,
+    sodiumMg: nutrients.sodiumMg == null ? null : nutrients.sodiumMg * factor.sodium,
   };
 }
 
@@ -148,22 +183,45 @@ export function kcalToKj(kcal: number): number {
   return kcal * KJ_PER_KCAL;
 }
 
-export function formatNumber(value: number, maximumFractionDigits = 0): string {
+export function formatNumber(value: number | null | undefined, maximumFractionDigits = 0): string {
+  if (!hasNutrientValue(value)) return '暂无数据';
   return new Intl.NumberFormat('zh-CN', { maximumFractionDigits }).format(value);
 }
 
-export function formatEnergy(kcal: number, unit: EnergyUnit, maximumFractionDigits = 0): string {
+export function formatNutrient(value: number | null | undefined, maximumFractionDigits = 1, unit = ''): string {
+  if (!hasNutrientValue(value)) return '暂无数据';
+  return `${formatNumber(value, maximumFractionDigits)}${unit ? ` ${unit}` : ''}`;
+}
+
+export function formatEnergy(kcal: number | null | undefined, unit: EnergyUnit, maximumFractionDigits = 0): string {
+  if (!hasNutrientValue(kcal)) return '暂无数据';
   return unit === 'kj'
     ? `${formatNumber(kcalToKj(kcal), maximumFractionDigits)} kJ`
     : `${formatNumber(kcal, maximumFractionDigits)} kcal`;
 }
 
-export function formatEnergyPair(kcal: number): string {
+export function formatEnergyPair(kcal: number | null | undefined): string {
+  if (!hasNutrientValue(kcal)) return '暂无数据';
   return `${formatNumber(kcalToKj(kcal))} kJ · ${formatNumber(kcal)} kcal`;
 }
 
 export function localDateKey(date = new Date()): string {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+}
+
+export function dateKeyToRecordedAt(dateKey: string, template = new Date()): string {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const next = new Date(template.getTime());
+  next.setFullYear(year, month - 1, day);
+  return next.toISOString();
+}
+
+export function recentFoodIds(entries: FoodLogEntry[], limit = 8): string[] {
+  return [...new Set([...entries].reverse().map((entry) => entry.foodId))].slice(0, limit);
+}
+
+export function lastPortionForFood(entries: FoodLogEntry[], foodId: string): FoodLogEntry | undefined {
+  return [...entries].reverse().find((entry) => entry.foodId === foodId);
 }
 
 export function shiftDateKey(dateKey: string, days: number): string {
@@ -256,10 +314,10 @@ export function percent(value: number, target: number): number {
 
 export function nextMealSuggestion(total: Nutrients, targets: NutritionTargets, groups?: FoodGroupTotals): string {
   if (groups && groups.vegetableServes < targets.vegetableServes * 0.45) return '下一餐优先加一碟青菜或菌菇，把蔬菜份量补上来。';
-  if (total.fibreG < targets.fibreG * 0.45) return '下一餐优先加入两种蔬菜或一份全谷物，补足今天偏低的膳食纤维。';
+  if (nutrientNumber(total.fibreG) < targets.fibreG * 0.45) return '下一餐优先加入两种蔬菜或一份全谷物，补足今天偏低的膳食纤维。';
   if (groups && groups.proteinServes < targets.proteinServes * 0.5) return '下一餐加入一掌心鱼、鸡肉、豆腐或豆类，让蛋白质分布更均衡。';
-  if (total.proteinG < targets.proteinG * 0.5) return '下一餐加入一掌心鱼、鸡肉、豆腐或豆类，让蛋白质分布更均衡。';
-  if (total.sodiumMg > targets.sodiumMg * 0.8) return '今天钠摄入已较高，下一餐尽量少酱汁、少加工食品，并搭配清淡蔬菜。';
+  if (nutrientNumber(total.proteinG) < targets.proteinG * 0.5) return '下一餐加入一掌心鱼、鸡肉、豆腐或豆类，让蛋白质分布更均衡。';
+  if (nutrientNumber(total.sodiumMg) > targets.sodiumMg * 0.8) return '今天钠摄入已较高，下一餐尽量少酱汁、少加工食品，并搭配清淡蔬菜。';
   return '今天的结构整体均衡。下一餐继续保持半盘蔬菜、四分之一蛋白质和四分之一主食。';
 }
 

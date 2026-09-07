@@ -1,12 +1,12 @@
 import { importStats } from '@/data/generated/import-stats';
 
 export const catalogMeta = {
-  version: 'official-0.4.0',
-  updatedAt: '2026-09-04',
+  version: 'official-0.6.0',
+  updatedAt: '2026-09-06',
   intendedUse: 'closed-trial-offline',
   officialImport: 'afcd-r3-ausnut-2023',
   counts: {
-    featured: 120,
+    featured: 158,
     ausnut: importStats.ausnut,
     afcdExtra: importStats.afcdExtra,
     usdaFoundation: importStats.usdaFoundation,

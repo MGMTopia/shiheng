@@ -36,6 +36,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test:domain
+      - run: pnpm catalog:check
       - run: pnpm export:web
         env:
           NODE_OPTIONS: --max-old-space-size=4096

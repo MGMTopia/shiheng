@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { colors } from '@/constants/theme';
 import { AndroidUpdateGate } from '@/components/android-update-gate';
 import { AppErrorBoundary } from '@/components/error-boundary';
+import { CatalogProvider } from '@/data/catalog-provider';
 import { NutritionProvider } from '@/store/nutrition-store';
 import { incrementLocalMetric } from '@/services/local-metrics';
 
@@ -41,7 +42,8 @@ function AppOpenMetric() {
 export default function RootLayout() {
   return <AppErrorBoundary>
     <NutritionProvider>
-      <ThemeProvider value={appTheme}>
+      <CatalogProvider>
+        <ThemeProvider value={appTheme}>
         <StatusBar style="dark" />
         <AppOpenMetric />
         <AndroidUpdateGate />
@@ -49,13 +51,16 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.background }, headerShadowVisible: false, contentStyle: { backgroundColor: colors.background } }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="custom-food" options={{ title: '自定义食品', presentation: 'modal' }} />
+          <Stack.Screen name="data" options={{ title: '备份与导出' }} />
+          <Stack.Screen name="log-entry/[id]" options={{ title: '修改记录' }} />
           <Stack.Screen name="recipe/[id]" options={{ title: '套餐' }} />
           <Stack.Screen name="onboarding" options={{ headerShown: false }} />
           <Stack.Screen name="privacy" options={{ title: '隐私与数据' }} />
           <Stack.Screen name="feedback" options={{ title: '反馈' }} />
           <Stack.Screen name="metrics" options={{ title: '本地测试指标' }} />
         </Stack>
-      </ThemeProvider>
+        </ThemeProvider>
+      </CatalogProvider>
     </NutritionProvider>
   </AppErrorBoundary>;
 }

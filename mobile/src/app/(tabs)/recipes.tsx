@@ -2,17 +2,21 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Card, LoadingScreen, Screen, SectionTitle } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
-import { createFoodIndex } from '@/data/catalog';
-import { compositeDishes } from '@/data/foods';
+import { useFoodRepository } from '@/data/food-repository-context';
 import { mergedRecipes } from '@/data/recipes';
 import { compositionEstimate, formatEnergyPair, mealItemNames, nutrientsForServing, recipeEnergyPerServe } from '@/domain/nutrition';
 import { useNutrition } from '@/store/nutrition-store';
 
 export default function RecipesScreen() {
   const { recipes, customFoods, hydrated } = useNutrition();
+  const foods = useFoodRepository();
   if (!hydrated) return <LoadingScreen />;
-  const foodIndex = createFoodIndex(customFoods);
   const meals = mergedRecipes(recipes);
+  const compositeDishes = foods.listCompositeDishes(customFoods);
+  const foodIndex = foods.getByIds([
+    ...meals.flatMap((recipe) => recipe.items.map((item) => item.foodId)),
+    ...compositeDishes.flatMap((food) => [food.id, ...(food.composition?.ingredients.map((item) => item.foodId) ?? [])]),
+  ], customFoods);
 
   return <Screen>
     <View><Text style={styles.title}>家庭菜谱</Text><Text style={styles.subtitle}>套餐是一整餐；单道复合菜可查看食材、用油和出锅重量。</Text></View>

@@ -9,6 +9,7 @@ export type LocalMetricName =
   | 'search_empty'
   | 'food_opened'
   | 'entry_added'
+  | 'entry_updated'
   | 'entry_deleted'
   | 'entry_copied'
   | 'meal_copied'

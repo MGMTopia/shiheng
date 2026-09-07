@@ -1,10 +1,11 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { FoodRow } from '@/components/food-row';
 import { Card, PrimaryButton, Screen, SectionTitle } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
-import { catalogMeta, catalogSourceFilters, createFoodIndex, foodCategories, loggedFoodIds, SEARCH_MAX_RESULTS, SEARCH_PAGE_SIZE, searchCatalog, statusForFood } from '@/data/catalog';
+import { catalogMeta, catalogSourceFilters, foodCategories, loggedFoodIds, SEARCH_MAX_RESULTS, SEARCH_PAGE_SIZE, statusForFood } from '@/data/catalog-constants';
+import { useFoodRepository } from '@/data/food-repository-context';
 import { mergedRecipes } from '@/data/recipes';
 import { formatEnergyPair, mealItemNames, recipeEnergyPerServe } from '@/domain/nutrition';
 import { useNutrition } from '@/store/nutrition-store';
@@ -21,7 +22,9 @@ const quickAdds = [
 ];
 
 export default function SearchScreen() {
+  const { dateKey } = useLocalSearchParams<{ dateKey?: string }>();
   const { customFoods, favouriteFoodIds, entries, verifiedFoodIds, recipes } = useNutrition();
+  const foods = useFoodRepository();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [category, setCategory] = useState<'all' | FoodCategory>('all');
@@ -34,17 +37,24 @@ export default function SearchScreen() {
     setLimit(SEARCH_PAGE_SIZE);
   }
   const loggedCount = loggedFoodIds(entries).length;
-  const foodIndex = createFoodIndex(customFoods);
+  const suggested = useMemo(() => mergedRecipes(recipes).slice(0, 3), [recipes]);
+  const foodIndex = useMemo(
+    () => foods.getByIds([
+      ...entries.map((entry) => entry.foodId),
+      ...quickAdds.map((item) => item.id),
+      ...suggested.flatMap((recipe) => recipe.items.map((item) => item.foodId)),
+    ], customFoods),
+    [customFoods, entries, foods, suggested],
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [query]);
 
-  const results = useMemo(() => searchCatalog({
+  const results = useMemo(() => foods.search({
     customFoods, query: debouncedQuery, category, favouriteFoodIds, entries, verifiedFoodIds, source, limit,
-  }), [category, customFoods, entries, favouriteFoodIds, debouncedQuery, source, verifiedFoodIds, limit]);
-  const suggested = mergedRecipes(recipes).slice(0, 3);
+  }), [category, customFoods, entries, favouriteFoodIds, foods, debouncedQuery, source, verifiedFoodIds, limit]);
   const recentIds = [...new Set([...entries].reverse().map((entry) => entry.foodId))].slice(0, 4);
   const recentFoods = recentIds.map((id) => foodIndex[id]).filter(Boolean);
   const showBrowse = query.trim().length > 0 || source !== 'common' || category !== 'all';
@@ -54,8 +64,8 @@ export default function SearchScreen() {
 
   const openFood = useCallback((foodId: string) => {
     incrementLocalMetric('food_opened').catch(() => undefined);
-    router.push({ pathname: '/food/[id]', params: { id: foodId } });
-  }, []);
+    router.push({ pathname: '/food/[id]', params: { id: foodId, ...(dateKey ? { dateKey: Array.isArray(dateKey) ? dateKey[0] : dateKey } : {}) } });
+  }, [dateKey]);
 
   const submitSearch = () => incrementLocalMetric(results.length ? 'search_used' : 'search_empty').catch(() => undefined);
   const loadMore = () => {
