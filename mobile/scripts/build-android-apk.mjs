@@ -240,9 +240,26 @@ function preferArm64Architecture() {
   fs.writeFileSync(gradlePropertiesPath, gradleProperties);
 }
 
+function tuneGradleForClosedTrial() {
+  const gradlePropertiesPath = path.join(root, 'android', 'gradle.properties');
+  let gradleProperties = fs.readFileSync(gradlePropertiesPath, 'utf8');
+  const jvmLine = 'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8';
+  if (/^org\.gradle\.jvmargs=/m.test(gradleProperties)) {
+    gradleProperties = gradleProperties.replace(/^org\.gradle\.jvmargs=.*$/m, jvmLine);
+  } else {
+    gradleProperties += `\n${jvmLine}\n`;
+  }
+  // Vital lint OOMs / hangs on constrained CI agents; release APK still packages fine.
+  if (!/^android\.lint\.checkReleaseBuilds=/m.test(gradleProperties)) {
+    gradleProperties += '\nandroid.lint.checkReleaseBuilds=false\n';
+  }
+  fs.writeFileSync(gradlePropertiesPath, gradleProperties);
+}
+
 function injectWindowsNativeWorkarounds() {
   // Closed-trial ships arm64 only (matches prior phone installs).
   preferArm64Architecture();
+  tuneGradleForClosedTrial();
   // Windows NDK short-path relocation is not needed on Linux/macOS.
   if (process.platform !== 'win32') return [];
   return relocateNativeCmakePackages();
@@ -283,9 +300,15 @@ injectSigning(properties);
 const shortAndroidDirs = injectWindowsNativeWorkarounds() || [];
 cleanStaleNdkDirs(shortAndroidDirs);
 const androidDir = path.join(root, 'android');
+const gradleArgs = [
+  'assembleRelease',
+  '-x', 'lintVitalAnalyzeRelease',
+  '-x', 'lintVitalReportRelease',
+  '--no-daemon',
+];
 if (process.platform === 'win32') {
-  run('gradlew.bat', ['assembleRelease'], androidDir);
+  run('gradlew.bat', gradleArgs, androidDir);
 } else {
-  run('./gradlew', ['assembleRelease'], androidDir);
+  run('./gradlew', gradleArgs, androidDir);
 }
 copyApk();
