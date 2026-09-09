@@ -9,7 +9,7 @@ import {
 } from '@/data/catalog-constants';
 import { featuredFoods, foods } from '@/data/foods';
 import { attachCustomSources, buildClusterIndex, clusterMembers, collapseSearchHits, presentCluster } from '@/domain/catalog-groups';
-import { catalogSearchScore, catalogStatus, matchesFoodQuery } from '@/domain/nutrition';
+import { bestCatalogSearchScore, catalogStatus, matchesFoodQuery } from '@/domain/nutrition';
 import type { CatalogSourceFilter, CatalogStatus, Food, FoodCategory, FoodLogEntry } from '@/types/nutrition';
 
 export {
@@ -51,6 +51,12 @@ export function foodCluster(foodId: string, customFoods: Food[] = []): Food[] {
     return members;
   }
   return custom ? attachCustomSources([custom], customFoods.filter((food) => food.id !== custom.id)) : [];
+}
+
+export function findByBarcode(barcode: string, customFoods: Food[] = []): Food | undefined {
+  const code = barcode.replace(/\D/g, '');
+  if (code.length < 8) return undefined;
+  return mergedFoodCatalog(customFoods).find((food) => (food.barcode ?? '').replace(/\D/g, '') === code);
 }
 
 export function presentedFood(foodId: string, customFoods: Food[] = [], source?: CatalogSourceFilter): Food | undefined {
@@ -101,12 +107,10 @@ export function searchCatalog(options: {
     .filter((food) => needle.length > 0 || browseAll || featuredIds.has(food.id) || customIds.has(food.id));
 
   const collapsed = collapseSearchHits(matches, catalog, index, source === 'common' ? undefined : source);
+  const byId = new Map(catalog.map((food) => [food.id, food]));
+  const ctx = { favouriteFoodIds, logged, featuredIds, customIds };
   const results = collapsed.sort((a, b) => {
-    const score = (food: Food) => {
-      const members = [food, ...(food.alternateSources ?? []).map((item) => catalog.find((entry) => entry.id === item.foodId)).filter(Boolean)] as Food[];
-      return Math.max(...members.map((member) => catalogSearchScore(member, query, { favouriteFoodIds, logged, featuredIds, customIds })));
-    };
-    const delta = score(b) - score(a);
+    const delta = bestCatalogSearchScore(b, byId, query, ctx) - bestCatalogSearchScore(a, byId, query, ctx);
     return delta !== 0 ? delta : a.nameEn.localeCompare(b.nameEn);
   });
 

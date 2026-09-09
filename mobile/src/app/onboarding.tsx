@@ -6,7 +6,7 @@ import { BrandMarkTile } from '@/components/brand-mark';
 import { Card, PrimaryButton, Screen } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
 import { incrementLocalMetric } from '@/services/local-metrics';
-import { useNutrition } from '@/store/nutrition-store';
+import { useProfile, useSession } from '@/store/nutrition-store';
 import type { EnergyUnit } from '@/types/nutrition';
 
 const ONBOARDING_KEY = '@shiheng/onboarding-complete/v1';
@@ -18,7 +18,8 @@ const principles = [
 ] as const;
 
 export default function OnboardingScreen() {
-  const { hydrated, profile, updateProfile } = useNutrition();
+  const { hydrated } = useSession();
+  const { profile, updateProfile } = useProfile();
   const [saving, setSaving] = useState(false);
   const [energyOverride, setEnergyOverride] = useState<EnergyUnit | null>(null);
   const energyUnit = energyOverride ?? profile.energyUnit;

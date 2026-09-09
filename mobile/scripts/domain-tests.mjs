@@ -91,6 +91,15 @@ assert.equal('nutrientsPer100g' in homeDinner, false, '菜谱不是自定义食�
 assert.ok('nutrientsPer100g' in tomatoEgg, '目录食品才有每100g营养');
 assert.ok(nutrition.recipeEnergyPerServe(homeDinner, foodsById) > 200, '套餐应能汇总能量');
 closeTo(nutrition.foodGroupServes([{ id: 'v', foodId: 'bok-choy-stir-fry', servings: 1, meal: 'dinner', recordedAt: '' }], foodsById).vegetableServes, 1, '青菜计入蔬菜份');
+closeTo(nutrition.foodGroupServes([{ id: 'f', foodId: 'apple', servings: 1, meal: 'snack', recordedAt: '' }], foodsById).fruitServes, 1, '苹果计入水果份');
+assert.deepEqual(nutrition.frequentFoodIds([
+  { id: '1', foodId: 'apple', servings: 1, meal: 'snack', recordedAt: '' },
+  { id: '2', foodId: 'apple', servings: 1, meal: 'snack', recordedAt: '' },
+  { id: '3', foodId: 'banana', servings: 1, meal: 'snack', recordedAt: '' },
+], 1), ['apple']);
+assert.equal(nutrition.servingMassUnit(foodsById['black-coffee']), 'ml');
+assert.equal(nutrition.servingsFromMass(foodsById.apple, 360), 2);
+assert.match(nutrition.nextMealSuggestion({ ...nutrition.emptyNutrients(), fibreG: 20, proteinG: 60 }, targets, { vegetableServes: 5, grainServes: 2, proteinServes: 2, fruitServes: 0 }), /水果/);
 
 const invalid = validation.validateFoodDraft({
   nameZh: '', category: 'mixed', servingLabel: '', servingGrams: -1, nutrientsPer100g: { energyKcal: -2 },
@@ -111,6 +120,9 @@ assert.ok(foods.length >= 4000, '导入后的随包目录应包含 FSANZ 与 USD
 assert.ok(foodsById['ausnut-29101001'], '应包含 AUSNUT 官方条目');
 assert.ok(foods.some((food) => food.source.dataset === 'fsanz-afcd'), '应包含 AFCD 补充条目');
 assert.ok(foods.some((food) => food.source.dataset === 'usda-fdc'), '应包含 USDA 海外对照');
+assert.ok(foods.filter((food) => food.tags.includes('overseas')).length >= 800, 'USDA 对照应包含 Foundation、SR Legacy 与筛选后的 FNDDS');
+assert.ok(foods.some((food) => food.tags.includes('usda-sr-legacy')), '应包含 USDA SR Legacy');
+assert.ok(foods.some((food) => food.tags.includes('usda-fndds')), '应包含筛选后的 USDA FNDDS');
 assert.ok(foodsById['ausnut-29101001'].nutrientsPer100g.fibreG < 5, '啤酒纤维不应被能量列误映射');
 assert.ok(catalog.searchCatalog({}).length < 200, '空白搜索只应返回常用食物');
 assert.ok(catalog.searchCatalog({ officialOnly: true }).length <= 30, '官方库搜索应分页');
@@ -168,10 +180,10 @@ assert.equal(appleHits.filter((food) => food.nameZh === '苹果' || food.id === 
 assert.equal(nutrition.displayFoodName(appleHits[0]), '苹果', '预览标题应使用中文');
 assert.ok(appleHits[0].nameEn !== appleHits[0].nameZh, '预览副标题应保留英文');
 
-const englishOnly = foods.filter((food) => food.source.dataset !== 'open-food-facts' && food.nameEn.includes(',') && (!/[\u4e00-\u9fff]/.test(food.nameZh) || food.nameZh === food.nameEn));
+const englishOnly = foods.filter((food) => food.source.dataset !== 'open-food-facts' && food.source.dataset !== 'usda-fdc' && food.nameEn.includes(',') && (!/[\u4e00-\u9fff]/.test(food.nameZh) || food.nameZh === food.nameEn));
 assert.ok(englishOnly.length < 450, `官方条目应补中文名，当前纯英文 ${englishOnly.length} 条`);
 for (const query of ['chicken', 'beef', 'bread', 'apple', 'milk']) {
-  const untitled = catalog.searchCatalog({ query }).filter((food) => !/[\u4e00-\u9fff]/.test(food.nameZh) && food.source.dataset !== 'open-food-facts');
+  const untitled = catalog.searchCatalog({ query }).filter((food) => !/[\u4e00-\u9fff]/.test(food.nameZh) && food.source.dataset !== 'open-food-facts' && food.source.dataset !== 'usda-fdc');
   assert.ok(untitled.length <= 2, `${query} 搜索不应出现一堆纯英文标题，当前 ${untitled.length} 条`);
 }
 const chickenStir = foods.find((food) => /stir-fry, commercial, chicken$/i.test(food.nameEn));
@@ -210,7 +222,7 @@ assert.ok(tomatoEstimate.wholeDish.fatG > 8, '按食材估算应计入用油脂�
 
 const compositions = await import('../src/data/dish-compositions.ts');
 const compositionIds = Object.keys(compositions.dishCompositions);
-assert.ok(compositionIds.length >= 50, '应收录一批高频复合菜构成');
+assert.ok(compositionIds.length >= 80, '应收录一批高频复合菜构成');
 for (const [id, composition] of Object.entries(compositions.dishCompositions)) {
   assert.ok(foodsById[id], `复合菜 ${id} 应存在于目录`);
   assert.ok(foodsById[id].composition, `复合菜 ${id} 应挂上构成`);
@@ -259,7 +271,12 @@ assert.ok(sqliteFoods.search({ query: '酱油' }).some((food) => food.id === 'so
 assert.ok(sqliteFoods.search({ query: '方便面' }).some((food) => food.id === 'instant-noodles-cooked' || food.alternateSources?.some((item) => item.foodId === 'instant-noodles-cooked')), 'SQLite 方便面应能搜到煮熟方便面');
 assert.ok(sqliteFoods.search({ query: '9300652010794' })[0]?.id === 'off-weet-bix' || sqliteFoods.search({ query: '9300652010794' })[0]?.alternateSources?.some((item) => item.foodId === 'off-weet-bix'), 'SQLite 条码应优先对应包装食品');
 assert.ok(sqliteFoods.getById('egg-boiled')?.nameZh, 'SQLite 应按 id 取食物');
+assert.equal(sqliteFoods.getByBarcode('9300652010794')?.id, 'off-weet-bix', 'SQLite 应按条码取包装食品');
+assert.ok(sqliteFoods.search({ query: '番茄炒蛋' })[0]?.id === 'tomato-egg', 'SQLite 精确中文名应优先命中家常菜');
+assert.ok(sqliteFoods.search({ query: 'milk', source: 'supermarket' }).length > 0, 'SQLite 超市筛选应在候选阶段生效');
+assert.ok(sqliteFoods.search({ query: 'milk', source: 'supermarket' }).every((food) => food.tags.includes('supermarket') || (food.alternateSources?.length ?? 0) > 0), '超市筛选结果应是包装或同类来源');
 assert.ok(sqliteFoods.listCompositeDishes().some((food) => food.id === 'tomato-egg'), 'SQLite 应列出复合菜');
+assert.ok(sqliteFoods.listCompositeDishes().some((food) => food.id === 'prawn-fried-rice'), 'SQLite 应包含新增家常菜');
 
 const customMilk = {
   ...foodsById['milk-full-cream'],
@@ -361,6 +378,20 @@ await assert.rejects(() => writer.enqueue('fail'), /disk full/, '写入失败应
 await writer.enqueue('recovered');
 assert.equal(writes.at(-1), 'recovered', '失败后队列应能继续写入');
 
+const split = persist.parseSplitPersistedState({
+  diary: persist.serializePersistedSlices(legacy.snapshot).diary,
+  profile: persist.serializePersistedSlices(legacy.snapshot).profile,
+  personalFoods: persist.serializePersistedSlices(legacy.snapshot).personalFoods,
+  recipes: persist.serializePersistedSlices(legacy.snapshot).recipes,
+});
+assert.equal(split.snapshot.entries[0].foodId, 'apple', '拆分存储应能读回日记');
+assert.equal(split.snapshot.profile.firstName, '李', '拆分存储应能读回资料');
+assert.deepEqual(split.snapshot.favouriteFoodIds, ['apple'], '拆分存储应能读回收藏');
+assert.equal(persist.parseSplitPersistedState({
+  legacy: persist.serializePersistedState(legacy.snapshot),
+}).snapshot.entries[0].foodId, 'apple', '没有拆分键时应回退到旧单键');
+assert.equal(persist.parseSplitPersistedState({ diary: '{' }).writable, false, '拆分键损坏时不得覆盖');
+
 const backup = await import('../src/domain/backup.ts');
 const exported = backup.serializeBackupFile(legacy.snapshot, '2026-09-06T00:00:00.000Z');
 const inspected = backup.inspectBackup(exported);
@@ -375,4 +406,23 @@ if (inspected.ok) {
 assert.equal(backup.inspectBackup('{').ok, false, '损坏备份应被拒绝');
 assert.equal(backup.inspectBackup('[]').ok, false, '非对象备份应被拒绝');
 
-console.log('Domain checks passed: nutrition math, shared meals, recipes vs foods, sources, catalog quality, persistence, and backup.');
+const trends = await import('../src/domain/trends.ts');
+const emptyWeek = trends.periodSummary([], foodsById, targets, 7, '2026-09-06');
+assert.equal(emptyWeek.loggedDays, 0, '没有记录时 7 天完整度应为 0');
+assert.equal(trends.actionableAdvice(nutrition.emptyNutrients(), nutrition.emptyFoodGroups(), emptyWeek, targets, false).length, 1, '无记录时仍给一条提示');
+const sodiumEntries = [];
+for (let i = 0; i < 4; i++) {
+  const key = nutrition.shiftDateKey('2026-09-06', -i);
+  sodiumEntries.push(
+    { id: `l${i}`, foodId: 'instant-noodles-cooked', servings: 2, meal: 'lunch', recordedAt: nutrition.dateKeyToRecordedAt(key) },
+    { id: `d${i}`, foodId: 'soy-sauce', servings: 1, meal: 'dinner', recordedAt: nutrition.dateKeyToRecordedAt(key) },
+  );
+}
+const saltyWeek = trends.periodSummary(sodiumEntries, foodsById, targets, 7, '2026-09-06');
+assert.equal(saltyWeek.loggedDays, 4, '应统计有记录的天数');
+assert.ok(saltyWeek.completeDays >= 4, '两顿正餐应算较完整');
+assert.ok(saltyWeek.highSodiumDays >= 3, '应识别重复高钠天');
+assert.ok(trends.actionableAdvice(nutrition.emptyNutrients(), nutrition.emptyFoodGroups(), saltyWeek, targets, false).some((item) => /钠/.test(item.title)), '应给出减少高钠食物的建议');
+assert.match(trends.weekSummaryCsv(sodiumEntries, foodsById, 7, '2026-09-06'), /date,logged,complete/);
+
+console.log('Domain checks passed: nutrition math, shared meals, recipes vs foods, sources, catalog quality, persistence, backup, and trends.');

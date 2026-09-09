@@ -1,7 +1,7 @@
 import { SEARCH_MAX_RESULTS, SEARCH_PAGE_SIZE, loggedFoodIds, resolveSource } from '@/data/catalog-constants';
 import type { FoodRepository, FoodSearchQuery } from '@/data/food-repository-types';
 import { attachCustomSources, buildClusterIndex, collapseSearchHits } from '@/domain/catalog-groups';
-import { catalogSearchScore, matchesFoodQuery } from '@/domain/nutrition';
+import { bestCatalogSearchScore, matchesFoodQuery } from '@/domain/nutrition';
 import { extractIngredientTokens, normalizeFoodQuery } from '@/domain/search';
 import type { Food } from '@/types/nutrition';
 
@@ -13,15 +13,29 @@ export type SqlQuery = {
 };
 
 type FoodRow = { id: string; cluster_id: string; json: string };
+type Source = ReturnType<typeof resolveSource>;
 
 const CANDIDATE_LIMIT = 200;
+const EXACT_LIMIT = 40;
+const FOOD_CACHE_LIMIT = 1500;
+const foodCache = new Map<string, Food>();
 
 export function createSqliteFoodRepository(sql: SqlQuery): FoodRepository {
   const featuredIds = new Set(
     sql.all<{ id: string }>('SELECT id FROM foods WHERE is_featured = 1').map((row) => row.id),
   );
 
-  const parse = (row: FoodRow): Food => JSON.parse(row.json) as Food;
+  const parse = (row: FoodRow): Food => {
+    const cached = foodCache.get(row.id);
+    if (cached) return cached;
+    const food = JSON.parse(row.json) as Food;
+    if (foodCache.size >= FOOD_CACHE_LIMIT) {
+      const oldest = foodCache.keys().next().value;
+      if (oldest) foodCache.delete(oldest);
+    }
+    foodCache.set(row.id, food);
+    return food;
+  };
 
   const loadRowsByIds = (ids: string[]): FoodRow[] => {
     if (!ids.length) return [];
@@ -66,7 +80,7 @@ export function createSqliteFoodRepository(sql: SqlQuery): FoodRepository {
       } else if (!needle) {
         rows = loadFiltered(sql, source, category, logged, verified, 400);
       } else {
-        const candidateIds = searchCandidateIds(sql, needle);
+        const candidateIds = searchCandidateIds(sql, needle, source, category, logged, verified);
         const hitRows = loadRowsByIds(candidateIds);
         const clusterIds = [...new Set(hitRows.map((row) => row.cluster_id))];
         const clustered = loadClusterRows(clusterIds);
@@ -86,12 +100,10 @@ export function createSqliteFoodRepository(sql: SqlQuery): FoodRepository {
         .filter((food) => needle.length > 0 || browseAll || featuredIds.has(food.id) || customIds.has(food.id));
 
       const collapsed = collapseSearchHits(matches, catalog, index, source === 'common' ? undefined : source);
+      const byId = new Map(catalog.map((food) => [food.id, food]));
+      const ctx = { favouriteFoodIds, logged, featuredIds, customIds };
       collapsed.sort((a, b) => {
-        const score = (food: Food) => {
-          const members = [food, ...(food.alternateSources ?? []).map((item) => catalog.find((entry) => entry.id === item.foodId)).filter(Boolean)] as Food[];
-          return Math.max(...members.map((member) => catalogSearchScore(member, query, { favouriteFoodIds, logged, featuredIds, customIds })));
-        };
-        const delta = score(b) - score(a);
+        const delta = bestCatalogSearchScore(b, byId, query, ctx) - bestCatalogSearchScore(a, byId, query, ctx);
         return delta !== 0 ? delta : a.nameEn.localeCompare(b.nameEn);
       });
       return needle.length > 0 || browseAll ? collapsed.slice(0, pageSize) : collapsed;
@@ -114,6 +126,18 @@ export function createSqliteFoodRepository(sql: SqlQuery): FoodRepository {
       return result;
     },
 
+    getByBarcode(barcode, customFoods = []) {
+      const code = barcode.replace(/\D/g, '');
+      if (code.length < 8) return undefined;
+      const custom = customFoods.find((food) => (food.barcode ?? '').replace(/\D/g, '') === code);
+      if (custom) return custom;
+      const rows = sql.all<FoodRow>(
+        'SELECT id, cluster_id, json FROM foods WHERE search_extra LIKE ? LIMIT 20',
+        [`%${code}%`],
+      );
+      return rows.map(parse).find((food) => (food.barcode ?? '').replace(/\D/g, '') === code);
+    },
+
     cluster(foodId, customFoods = []) {
       const custom = customFoods.find((food) => food.id === foodId);
       const row = sql.first<FoodRow>('SELECT id, cluster_id, json FROM foods WHERE id = ?', [foodId]);
@@ -133,7 +157,7 @@ export function createSqliteFoodRepository(sql: SqlQuery): FoodRepository {
   };
 }
 
-function matchesSource(food: Food, source: ReturnType<typeof resolveSource>, logged: Set<string>, verified: Set<string>) {
+function matchesSource(food: Food, source: Source, logged: Set<string>, verified: Set<string>) {
   switch (source) {
     case 'logged': return logged.has(food.id) || verified.has(food.id);
     case 'supermarket': return food.tags.includes('supermarket');
@@ -143,76 +167,112 @@ function matchesSource(food: Food, source: ReturnType<typeof resolveSource>, log
   }
 }
 
+function foodWhere(
+  source: Source,
+  category: 'all' | Food['category'],
+  logged: Set<string>,
+  verified: Set<string>,
+  table = 'foods',
+): { sql: string; params: SqlParam[] } {
+  const clauses: string[] = [];
+  const params: SqlParam[] = [];
+  if (category !== 'all') {
+    clauses.push(`${table}.category = ?`);
+    params.push(category);
+  }
+  if (source === 'supermarket') clauses.push(`${table}.is_supermarket = 1`);
+  if (source === 'official') clauses.push(`${table}.is_fsanz = 1`);
+  if (source === 'overseas') clauses.push(`${table}.is_overseas = 1`);
+  if (source === 'logged') {
+    const ids = [...new Set([...logged, ...verified])];
+    if (!ids.length) return { sql: '0 = 1', params: [] };
+    clauses.push(`${table}.id IN (${ids.map(() => '?').join(',')})`);
+    params.push(...ids);
+  }
+  return { sql: clauses.length ? clauses.join(' AND ') : '1 = 1', params };
+}
+
 function loadFiltered(
   sql: SqlQuery,
-  source: ReturnType<typeof resolveSource>,
+  source: Source,
   category: 'all' | Food['category'],
   logged: Set<string>,
   verified: Set<string>,
   limit: number,
 ): FoodRow[] {
-  const clauses = ['1 = 1'];
-  const params: SqlParam[] = [];
-  if (category !== 'all') {
-    clauses.push('category = ?');
-    params.push(category);
-  }
-  if (source === 'supermarket') clauses.push('is_supermarket = 1');
-  if (source === 'official') clauses.push('is_fsanz = 1');
-  if (source === 'overseas') clauses.push('is_overseas = 1');
-  if (source === 'logged') {
-    const ids = [...new Set([...logged, ...verified])];
-    if (!ids.length) return [];
-    clauses.push(`id IN (${ids.map(() => '?').join(',')})`);
-    params.push(...ids);
-  }
-  params.push(limit);
+  const filter = foodWhere(source, category, logged, verified);
   return sql.all<FoodRow>(
-    `SELECT id, cluster_id, json FROM foods WHERE ${clauses.join(' AND ')} LIMIT ?`,
-    params,
+    `SELECT id, cluster_id, json FROM foods WHERE ${filter.sql} LIMIT ?`,
+    [...filter.params, limit],
   );
 }
 
-function searchCandidateIds(sql: SqlQuery, query: string): string[] {
-  const ids = new Set<string>();
-  const needle = query.trim().toLowerCase();
+function searchCandidateIds(
+  sql: SqlQuery,
+  query: string,
+  source: Source,
+  category: 'all' | Food['category'],
+  logged: Set<string>,
+  verified: Set<string>,
+): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const add = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  const needle = query.trim();
+  const lower = needle.toLowerCase();
   const digits = query.replace(/\D/g, '');
+  const filter = foodWhere(source, category, logged, verified);
+
   if (digits.length >= 8) {
     for (const row of sql.all<{ id: string }>(
-      'SELECT id FROM foods WHERE search_extra LIKE ? LIMIT 40',
-      [`%${digits}%`],
+      `SELECT id FROM foods WHERE search_extra LIKE ? AND ${filter.sql} LIMIT ?`,
+      [`%${digits}%`, ...filter.params, EXACT_LIMIT],
     )) {
-      ids.add(row.id);
+      add(row.id);
     }
   }
-  if (needle === '超市') {
+
+  if (lower === '超市') {
     return sql.all<{ id: string }>('SELECT id FROM foods WHERE is_supermarket = 1 LIMIT ?', [CANDIDATE_LIMIT]).map((row) => row.id);
   }
-  if (needle === '美国' || needle === 'usda' || needle === 'overseas') {
+  if (lower === '美国' || lower === 'usda' || lower === 'overseas') {
     return sql.all<{ id: string }>('SELECT id FROM foods WHERE is_overseas = 1 LIMIT ?', [CANDIDATE_LIMIT]).map((row) => row.id);
   }
-  if (needle === 'fsanz' || needle === 'afcd' || needle === 'ausnut') {
+  if (lower === 'fsanz' || lower === 'afcd' || lower === 'ausnut') {
     return sql.all<{ id: string }>('SELECT id FROM foods WHERE is_fsanz = 1 LIMIT ?', [CANDIDATE_LIMIT]).map((row) => row.id);
+  }
+
+  for (const row of sql.all<{ id: string }>(
+    `SELECT id FROM foods WHERE (name_zh = ? OR lower(name_en) = ?) AND ${filter.sql} LIMIT ?`,
+    [needle, lower, ...filter.params, EXACT_LIMIT],
+  )) {
+    add(row.id);
   }
 
   const normalized = normalizeFoodQuery(query);
   const tokens = extractIngredientTokens(normalized);
   if (tokens.length >= 2) {
-    addFtsMatches(sql, ids, tokens.map((token) => `"${escapeFtsToken(token)}"`).join(' AND '));
+    addFtsMatches(sql, add, seen, tokens.map((token) => `"${escapeFtsToken(token)}"`).join(' AND '), filter);
   }
   for (const term of candidateNeedles(query, normalized, tokens)) {
-    if (ids.size >= CANDIDATE_LIMIT) break;
-    addFtsMatches(sql, ids, toFtsQuery(term));
+    if (seen.size >= CANDIDATE_LIMIT) break;
+    addFtsMatches(sql, add, seen, toFtsQuery(term), filter);
     const like = `%${term.toLowerCase()}%`;
+    const remaining = CANDIDATE_LIMIT - seen.size;
+    if (remaining <= 0) break;
     for (const row of sql.all<{ id: string }>(
-      'SELECT id FROM foods WHERE lower(name_zh) LIKE ? OR lower(name_en) LIKE ? OR lower(search_extra) LIKE ? LIMIT ?',
-      [like, like, like, CANDIDATE_LIMIT],
+      `SELECT id FROM foods WHERE (lower(name_zh) LIKE ? OR lower(name_en) LIKE ? OR lower(search_extra) LIKE ?) AND ${filter.sql} LIMIT ?`,
+      [like, like, like, ...filter.params, remaining],
     )) {
-      ids.add(row.id);
-      if (ids.size >= CANDIDATE_LIMIT) break;
+      add(row.id);
+      if (seen.size >= CANDIDATE_LIMIT) break;
     }
   }
-  return [...ids].slice(0, CANDIDATE_LIMIT);
+  return ids.slice(0, CANDIDATE_LIMIT);
 }
 
 function candidateNeedles(query: string, normalized: string, tokens: string[]): string[] {
@@ -220,15 +280,38 @@ function candidateNeedles(query: string, normalized: string, tokens: string[]): 
     .sort((a, b) => b.length - a.length);
 }
 
-function addFtsMatches(sql: SqlQuery, ids: Set<string>, fts: string | null) {
-  if (!fts || ids.size >= CANDIDATE_LIMIT) return;
+function addFtsMatches(
+  sql: SqlQuery,
+  add: (id: string) => void,
+  seen: Set<string>,
+  fts: string | null,
+  filter: { sql: string; params: SqlParam[] },
+) {
+  if (!fts || seen.size >= CANDIDATE_LIMIT) return;
+  const remaining = CANDIDATE_LIMIT - seen.size;
+  const ranked = `SELECT foods.id AS id FROM foods_fts JOIN foods ON foods.id = foods_fts.id WHERE foods_fts MATCH ? AND ${filter.sql} ORDER BY rank LIMIT ?`;
+  const plain = `SELECT foods.id AS id FROM foods_fts JOIN foods ON foods.id = foods_fts.id WHERE foods_fts MATCH ? AND ${filter.sql} LIMIT ?`;
   try {
-    for (const row of sql.all<{ id: string }>('SELECT id FROM foods_fts WHERE foods_fts MATCH ? LIMIT ?', [fts, CANDIDATE_LIMIT])) {
-      ids.add(row.id);
-      if (ids.size >= CANDIDATE_LIMIT) break;
+    for (const row of sql.all<{ id: string }>(ranked, [fts, ...filter.params, remaining])) {
+      add(row.id);
+      if (seen.size >= CANDIDATE_LIMIT) break;
     }
   } catch {
-    // Invalid FTS syntax should fall through to LIKE.
+    try {
+      for (const row of sql.all<{ id: string }>(plain, [fts, ...filter.params, remaining])) {
+        add(row.id);
+        if (seen.size >= CANDIDATE_LIMIT) break;
+      }
+    } catch {
+      try {
+        for (const row of sql.all<{ id: string }>('SELECT id FROM foods_fts WHERE foods_fts MATCH ? LIMIT ?', [fts, remaining])) {
+          add(row.id);
+          if (seen.size >= CANDIDATE_LIMIT) break;
+        }
+      } catch {
+        // Invalid FTS syntax should fall through to LIKE.
+      }
+    }
   }
 }
 

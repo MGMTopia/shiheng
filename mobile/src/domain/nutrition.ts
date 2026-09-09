@@ -3,7 +3,7 @@ import type {
   Nutrients, NutritionTargets, OilLevel, Recipe,
 } from '@/types/nutrition';
 
-export { catalogSearchScore, matchesFoodQuery, normalizeFoodQuery, queryMatchRank } from '@/domain/search';
+export { catalogSearchScore, bestCatalogSearchScore, matchesFoodQuery, normalizeFoodQuery, queryMatchRank } from '@/domain/search';
 
 export const KJ_PER_KCAL = 4.184;
 
@@ -153,15 +153,21 @@ export function totalForEntries(entries: FoodLogEntry[], foodIndex: Record<strin
   }, emptyNutrients());
 }
 
+export const FRUIT_SERVE_TARGET = 2;
+
+export function emptyFoodGroups(): FoodGroupTotals {
+  return { vegetableServes: 0, grainServes: 0, proteinServes: 0, fruitServes: 0 };
+}
+
 export function groupContribution(food: Food): FoodGroupTotals {
   switch (food.category) {
-    case 'vegetable': return { vegetableServes: 1, grainServes: 0, proteinServes: 0 };
-    case 'staple': return { vegetableServes: 0, grainServes: 1, proteinServes: 0 };
-    case 'protein': return { vegetableServes: 0, grainServes: 0, proteinServes: 1 };
-    case 'dairy': return { vegetableServes: 0, grainServes: 0, proteinServes: 0.3 };
-    case 'mixed': return { vegetableServes: 0.4, grainServes: 0.35, proteinServes: 0.5 };
-    case 'fruit': return { vegetableServes: 0, grainServes: 0, proteinServes: 0 };
-    case 'snack': return { vegetableServes: 0, grainServes: 0.2, proteinServes: 0 };
+    case 'vegetable': return { vegetableServes: 1, grainServes: 0, proteinServes: 0, fruitServes: 0 };
+    case 'staple': return { vegetableServes: 0, grainServes: 1, proteinServes: 0, fruitServes: 0 };
+    case 'protein': return { vegetableServes: 0, grainServes: 0, proteinServes: 1, fruitServes: 0 };
+    case 'dairy': return { vegetableServes: 0, grainServes: 0, proteinServes: 0.3, fruitServes: 0 };
+    case 'mixed': return { vegetableServes: 0.4, grainServes: 0.35, proteinServes: 0.5, fruitServes: 0 };
+    case 'fruit': return { vegetableServes: 0, grainServes: 0, proteinServes: 0, fruitServes: 1 };
+    case 'snack': return { vegetableServes: 0, grainServes: 0.2, proteinServes: 0, fruitServes: 0 };
   }
 }
 
@@ -175,8 +181,25 @@ export function foodGroupServes(entries: FoodLogEntry[], foodIndex: Record<strin
       vegetableServes: total.vegetableServes + add.vegetableServes * qty,
       grainServes: total.grainServes + add.grainServes * qty,
       proteinServes: total.proteinServes + add.proteinServes * qty,
+      fruitServes: total.fruitServes + add.fruitServes * qty,
     };
-  }, { vegetableServes: 0, grainServes: 0, proteinServes: 0 });
+  }, emptyFoodGroups());
+}
+
+export function servingMassUnit(food: Food): 'g' | 'ml' {
+  if (food.tags.includes('drink')) return 'ml';
+  if (/ml|毫升/.test(food.servingLabel)) return 'ml';
+  return 'g';
+}
+
+export function massFromServings(food: Food, servings: number): number {
+  return Math.round(food.servingGrams * servings * 10) / 10;
+}
+
+export function servingsFromMass(food: Food, mass: number): number {
+  if (food.servingGrams <= 0) return 1;
+  const servings = mass / food.servingGrams;
+  return Math.min(20, Math.max(0.1, Math.round(servings * 100) / 100));
 }
 
 export function kcalToKj(kcal: number): number {
@@ -218,6 +241,15 @@ export function dateKeyToRecordedAt(dateKey: string, template = new Date()): str
 
 export function recentFoodIds(entries: FoodLogEntry[], limit = 8): string[] {
   return [...new Set([...entries].reverse().map((entry) => entry.foodId))].slice(0, limit);
+}
+
+export function frequentFoodIds(entries: FoodLogEntry[], limit = 6): string[] {
+  const counts = new Map<string, number>();
+  for (const entry of entries) counts.set(entry.foodId, (counts.get(entry.foodId) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([id]) => id)
+    .slice(0, limit);
 }
 
 export function lastPortionForFood(entries: FoodLogEntry[], foodId: string): FoodLogEntry | undefined {
@@ -314,6 +346,7 @@ export function percent(value: number, target: number): number {
 
 export function nextMealSuggestion(total: Nutrients, targets: NutritionTargets, groups?: FoodGroupTotals): string {
   if (groups && groups.vegetableServes < targets.vegetableServes * 0.45) return '下一餐优先加一碟青菜或菌菇，把蔬菜份量补上来。';
+  if (groups && groups.fruitServes < FRUIT_SERVE_TARGET * 0.45) return '下一餐可以加一份水果，例如苹果、橙子或一份浆果。';
   if (nutrientNumber(total.fibreG) < targets.fibreG * 0.45) return '下一餐优先加入两种蔬菜或一份全谷物，补足今天偏低的膳食纤维。';
   if (groups && groups.proteinServes < targets.proteinServes * 0.5) return '下一餐加入一掌心鱼、鸡肉、豆腐或豆类，让蛋白质分布更均衡。';
   if (nutrientNumber(total.proteinG) < targets.proteinG * 0.5) return '下一餐加入一掌心鱼、鸡肉、豆腐或豆类，让蛋白质分布更均衡。';

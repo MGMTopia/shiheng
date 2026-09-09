@@ -19,6 +19,7 @@ export type FoodRepository = {
   search(query: FoodSearchQuery): Food[];
   getById(id: string, customFoods?: Food[]): Food | undefined;
   getByIds(ids: string[], customFoods?: Food[]): Record<string, Food>;
+  getByBarcode(barcode: string, customFoods?: Food[]): Food | undefined;
   cluster(foodId: string, customFoods?: Food[]): Food[];
   listCompositeDishes(customFoods?: Food[]): Food[];
 };

@@ -1,6 +1,8 @@
 /**
  * Local-only closed-trial APK helper. Not used by CI.
- * Does not rewrite node_modules. Signing stays in gitignored credentials/.
+ * On Windows, copies cmake-using native packages to a short drive path
+ * (C:\\n or D:\\n) and points Gradle at those dirs so NDK object paths stay
+ * under MAX_PATH. Signing stays in gitignored credentials/.
  */
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -119,6 +121,141 @@ function injectSigning(properties) {
   fs.writeFileSync(buildGradlePath, buildGradle);
 }
 
+function nativeCmakePackageDirs() {
+  const nodeModules = path.join(root, 'node_modules');
+  const extraNames = new Set(['expo-modules-core', 'react-native-gesture-handler']);
+  const dirs = [];
+  const seen = new Set();
+  const add = (packageDir) => {
+    if (!packageDir || !fs.existsSync(packageDir)) return;
+    const resolved = fs.realpathSync(packageDir);
+    if (seen.has(resolved)) return;
+    const name = path.basename(resolved);
+    const hasCmake = fs.existsSync(path.join(resolved, 'android', 'CMakeLists.txt'));
+    if (!hasCmake && !extraNames.has(name)) return;
+    if (!fs.existsSync(path.join(resolved, 'android'))) return;
+    seen.add(resolved);
+    dirs.push(resolved);
+  };
+  for (const name of fs.readdirSync(nodeModules).filter((entry) => !entry.startsWith('.'))) {
+    add(path.join(nodeModules, name));
+  }
+  const pnpm = path.join(nodeModules, '.pnpm');
+  if (fs.existsSync(pnpm)) {
+    for (const storeDir of fs.readdirSync(pnpm)) {
+      const nested = path.join(pnpm, storeDir, 'node_modules');
+      if (!fs.existsSync(nested)) continue;
+      for (const name of fs.readdirSync(nested)) {
+        add(path.join(nested, name));
+      }
+    }
+  }
+  return dirs;
+}
+
+function shortNativeRoot() {
+  for (const candidate of ['D:\\n', 'C:\\n']) {
+    try {
+      fs.mkdirSync(candidate, { recursive: true });
+      fs.accessSync(candidate, fs.constants.W_OK);
+      return candidate;
+    } catch {
+      // try the next drive
+    }
+  }
+  throw new Error('Need a writable short path (C:\\n or D:\\n) for the Windows NDK build.');
+}
+
+function relocateNativeCmakePackages() {
+  const shortRoot = shortNativeRoot();
+  const mapping = [];
+  for (const packageDir of nativeCmakePackageDirs()) {
+    const name = path.basename(packageDir);
+    const shortName = {
+      'react-native-screens': 's',
+      'react-native-worklets': 'w',
+      'react-native-reanimated': 'r',
+      'expo-sqlite': 'q',
+      'expo-updates': 'u',
+      'expo-modules-core': 'c',
+      'react-native-gesture-handler': 'g',
+    }[name] || `p${mapping.length}`;
+    const destination = path.join(shortRoot, shortName);
+    const real = fs.realpathSync(packageDir);
+    console.log(`Copying ${name} to ${destination} for Windows NDK paths`);
+    fs.rmSync(destination, { recursive: true, force: true });
+    fs.cpSync(real, destination, {
+      recursive: true,
+      filter: (source) => {
+        const rel = path.relative(real, source);
+        return !rel.split(path.sep).includes('.cxx')
+          && rel !== path.join('android', 'build')
+          && !rel.startsWith(`${path.join('android', 'build')}${path.sep}`);
+      },
+    });
+    const cmakeLists = path.join(destination, 'android', 'CMakeLists.txt');
+    if (fs.existsSync(cmakeLists)) {
+      const contents = fs.readFileSync(cmakeLists, 'utf8').replace(
+        /# shiheng-windows-object-path-max\r?\nset\(CMAKE_OBJECT_PATH_MAX 1024 CACHE STRING "" FORCE\)\r?\n/,
+        '',
+      );
+      fs.writeFileSync(cmakeLists, contents);
+    }
+    mapping.push({
+      name,
+      androidDir: path.join(destination, 'android').replace(/\\/g, '/'),
+      nodeModules: path.dirname(real),
+    });
+  }
+
+  const settingsPath = path.join(root, 'android', 'settings.gradle');
+  let settings = fs.readFileSync(settingsPath, 'utf8');
+  const snippet = `
+// shiheng-windows-native-dirs
+${mapping.map(({ name, androidDir }) => `project(':${name}').projectDir = new File('${androidDir}')`).join('\n')}
+`;
+  if (settings.includes('shiheng-windows-native-dirs')) {
+    settings = settings.replace(/\n\/\/ shiheng-windows-native-dirs[\s\S]*$/, snippet);
+  } else {
+    settings = `${settings.trimEnd()}\n${snippet}`;
+  }
+  fs.writeFileSync(settingsPath, settings);
+  process.env.NODE_PATH = [
+    ...mapping.map((entry) => entry.nodeModules),
+    process.env.NODE_PATH,
+  ].filter(Boolean).join(path.delimiter);
+  return mapping.map((entry) => entry.androidDir);
+}
+
+function injectWindowsNativeWorkarounds() {
+  if (process.platform !== 'win32') return;
+
+  const gradlePropertiesPath = path.join(root, 'android', 'gradle.properties');
+  let gradleProperties = fs.readFileSync(gradlePropertiesPath, 'utf8');
+  gradleProperties = gradleProperties.replace(
+    /^reactNativeArchitectures=.*$/m,
+    'reactNativeArchitectures=arm64-v8a',
+  );
+  fs.writeFileSync(gradlePropertiesPath, gradleProperties);
+
+  return relocateNativeCmakePackages();
+}
+
+function cleanStaleNdkDirs(shortAndroidDirs = []) {
+  const candidates = [
+    path.join(root, 'android', 'app', '.cxx'),
+    ...nativeCmakePackageDirs().map((packageDir) => path.join(packageDir, 'android', '.cxx')),
+    ...shortAndroidDirs.map((androidDir) => path.join(androidDir, '.cxx')),
+  ];
+  for (const dir of candidates) {
+    const resolved = fs.existsSync(dir) ? fs.realpathSync(dir) : dir;
+    if (fs.existsSync(resolved)) {
+      console.log(`Removing stale NDK dir ${resolved}`);
+      fs.rmSync(resolved, { recursive: true, force: true });
+    }
+  }
+}
+
 function copyApk() {
   const generated = path.join(root, 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk');
   if (!fs.existsSync(generated)) throw new Error(`Release APK not found at ${generated}`);
@@ -136,6 +273,8 @@ if (!skipPrebuild) {
   run('npx', ['expo', 'prebuild', '--platform', 'android', '--clean', '--non-interactive', '--no-install']);
 }
 injectSigning(properties);
+const shortAndroidDirs = injectWindowsNativeWorkarounds() || [];
+cleanStaleNdkDirs(shortAndroidDirs);
 const androidDir = path.join(root, 'android');
 if (process.platform === 'win32') {
   run('gradlew.bat', ['assembleRelease'], androidDir);

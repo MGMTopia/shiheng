@@ -5,10 +5,12 @@ import { colors, radii, spacing } from '@/constants/theme';
 import { useFoodRepository } from '@/data/food-repository-context';
 import { mergedRecipes } from '@/data/recipes';
 import { compositionEstimate, formatEnergyPair, mealItemNames, nutrientsForServing, recipeEnergyPerServe } from '@/domain/nutrition';
-import { useNutrition } from '@/store/nutrition-store';
+import { usePersonalFoods, useRecipes, useSession } from '@/store/nutrition-store';
 
 export default function RecipesScreen() {
-  const { recipes, customFoods, hydrated } = useNutrition();
+  const { recipes } = useRecipes();
+  const { customFoods } = usePersonalFoods();
+  const { hydrated } = useSession();
   const foods = useFoodRepository();
   if (!hydrated) return <LoadingScreen />;
   const meals = mergedRecipes(recipes);

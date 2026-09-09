@@ -52,6 +52,8 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="custom-food" options={{ title: '自定义食品', presentation: 'modal' }} />
           <Stack.Screen name="data" options={{ title: '备份与导出' }} />
+          <Stack.Screen name="trends" options={{ title: '饮食趋势' }} />
+          <Stack.Screen name="scan" options={{ title: '扫描条码' }} />
           <Stack.Screen name="log-entry/[id]" options={{ title: '修改记录' }} />
           <Stack.Screen name="recipe/[id]" options={{ title: '套餐' }} />
           <Stack.Screen name="onboarding" options={{ headerShown: false }} />

@@ -4,11 +4,14 @@ import { Card, LoadingScreen, PrimaryButton, Screen, SectionTitle, TextButton } 
 import { colors, spacing } from '@/constants/theme';
 import { useFoodRepository } from '@/data/food-repository-context';
 import { describeBackupPreview, diaryToCsv, inspectBackup, serializeBackupFile } from '@/domain/backup';
+import { weekSummaryCsv } from '@/domain/trends';
+import { localDateKey } from '@/domain/nutrition';
 import { pickTextFile, shareTextFile } from '@/services/backup-files';
-import { useNutrition } from '@/store/nutrition-store';
+import { usePersonalFoods, useSession } from '@/store/nutrition-store';
 
 export default function DataScreen() {
-  const { hydrated, currentSnapshot, replaceSnapshot, markBackupSaved, lastBackupAt, customFoods } = useNutrition();
+  const { hydrated, currentSnapshot, replaceSnapshot, markBackupSaved, lastBackupAt } = useSession();
+  const { customFoods } = usePersonalFoods();
   const foods = useFoodRepository();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -57,6 +60,22 @@ export default function DataScreen() {
     }
   };
 
+  const exportWeek = async () => {
+    setBusy(true);
+    setMessage('');
+    try {
+      const snapshot = currentSnapshot();
+      const foodIndex = foods.getByIds(snapshot.entries.map((entry) => entry.foodId), customFoods);
+      const csv = weekSummaryCsv(snapshot.entries, foodIndex, 7, localDateKey());
+      await shareTextFile(`shiheng-week-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv');
+      setMessage('近 7 天汇总已交给系统分享。');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '导出失败。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const restore = async () => {
     setBusy(true);
     setMessage('');
@@ -96,10 +115,11 @@ export default function DataScreen() {
     <SectionTitle>备份内容</SectionTitle>
     <Card>
       <Text style={styles.body}>JSON 备份包含饮食记录、个人资料、收藏、自定义食品和家庭菜谱，恢复时会执行版本迁移。</Text>
-      <Text style={styles.body}>CSV 只导出饮食日志，方便自己做表分析，不能用于完整恢复。</Text>
+      <Text style={styles.body}>CSV 只导出饮食日志，方便自己做表分析，不能用于完整恢复。也可以导出近 7 天按日汇总。</Text>
     </Card>
     <PrimaryButton label={busy ? '处理中…' : '导出 JSON 备份'} onPress={() => { void exportJson(); }} disabled={busy} />
     <TextButton label="导出 CSV 饮食日志" onPress={() => { void exportCsv(); }} />
+    <TextButton label="导出近 7 天汇总 CSV" onPress={() => { void exportWeek(); }} />
     <TextButton label="从 JSON 备份恢复" onPress={() => { void restore(); }} />
     {message ? <Text style={styles.message}>{message}</Text> : null}
   </Screen>;

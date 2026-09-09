@@ -7,7 +7,7 @@ import { colors, radii, spacing } from '@/constants/theme';
 import Constants from 'expo-constants';
 import { catalogMeta, loggedFoodIds } from '@/data/catalog-constants';
 import { formatEnergy } from '@/domain/nutrition';
-import { useNutrition } from '@/store/nutrition-store';
+import { useDiary, usePersonalFoods, useProfile, useSession } from '@/store/nutrition-store';
 import type { EnergyUnit, NutritionTargets } from '@/types/nutrition';
 
 const foodGroups = { vegetableServes: 5, grainServes: 6, proteinServes: 3 };
@@ -18,7 +18,10 @@ const presets: { id: string; label: string; description: string; targets: Nutrit
 ];
 
 export default function ProfileScreen() {
-  const { profile, hydrated, updateProfile, clearEntries, clearAllPersonalData, lastBackupAt, entries, verifiedFoodIds } = useNutrition();
+  const { profile, updateProfile } = useProfile();
+  const { hydrated, lastBackupAt, clearAllPersonalData } = useSession();
+  const { entries, clearEntries } = useDiary();
+  const { verifiedFoodIds } = usePersonalFoods();
   if (!hydrated) return <LoadingScreen />;
   const activeId = presets.find((preset) => preset.targets.energyKcal === profile.targets.energyKcal && preset.targets.proteinG === profile.targets.proteinG)?.id;
   const confirmClear = () => Alert.alert('清除饮食记录？', '建议先备份。该操作只清除饮食日志，无法撤销。', [
@@ -60,7 +63,7 @@ export default function ProfileScreen() {
 
     <Card>
       <Text style={styles.presetLabel}>个人图鉴</Text>
-      <Text style={styles.presetDescription}>已记录 {dexCount} 种。随包常用 {catalogMeta.counts.featured} 条，另有澳洲官方 {catalogMeta.counts.ausnut + catalogMeta.counts.afcdExtra} 条和 USDA 对照 {catalogMeta.counts.usdaFoundation} 条可搜索。其中 {verifiedFoodIds.length} 种已本机核对，核对不是官方审核。</Text>
+      <Text style={styles.presetDescription}>已记录 {dexCount} 种。随包常用 {catalogMeta.counts.featured} 条，另有澳洲官方 {catalogMeta.counts.ausnut + catalogMeta.counts.afcdExtra} 条和 USDA 对照 {catalogMeta.counts.usda} 条可搜索。其中 {verifiedFoodIds.length} 种已本机核对，核对不是官方审核。</Text>
     </Card>
 
     <SectionTitle>显示单位</SectionTitle>
@@ -84,6 +87,9 @@ export default function ProfileScreen() {
 
     <SectionTitle>设置</SectionTitle>
     <View style={styles.actionList}>
+      <Pressable onPress={() => router.push('/trends')} style={styles.actionRow}>
+        <View style={styles.actionMain}><Text style={styles.actionTitle}>饮食趋势</Text><Text style={styles.actionDescription}>查看 7/30 天平均、记录完整度和可执行建议。</Text></View><Text style={styles.actionArrow}>›</Text>
+      </Pressable>
       <Pressable onPress={() => router.push('/data')} style={styles.actionRow}>
         <View style={styles.actionMain}><Text style={styles.actionTitle}>备份、恢复和导出</Text><Text style={styles.actionDescription}>{lastBackupAt ? `最近备份 ${new Date(lastBackupAt).toLocaleString('zh-CN')}` : '导出 JSON 备份或 CSV 日志，也可从备份恢复。'}</Text></View><Text style={styles.actionArrow}>›</Text>
       </Pressable>

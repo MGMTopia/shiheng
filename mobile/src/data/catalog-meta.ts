@@ -1,18 +1,21 @@
 import { importStats } from '@/data/generated/import-stats';
 
 export const catalogMeta = {
-  version: 'official-0.6.0',
-  updatedAt: '2026-09-06',
+  version: 'official-0.8.0',
+  updatedAt: '2026-09-08',
   intendedUse: 'closed-trial-offline',
   officialImport: 'afcd-r3-ausnut-2023',
   counts: {
-    featured: 158,
+    featured: 178,
     ausnut: importStats.ausnut,
     afcdExtra: importStats.afcdExtra,
     usdaFoundation: importStats.usdaFoundation,
+    usdaSrLegacy: importStats.usdaSrLegacy,
+    usdaFndds: importStats.usdaFndds,
+    usda: importStats.usdaFoundation + importStats.usdaSrLegacy + importStats.usdaFndds,
     imported: importStats.totalImported,
   },
-  attribution: '澳洲主库来自 FSANZ AUSNUT 2023 与 AFCD Release 3，按 Data User Licence（CC BY-SA 3.0 Australia）署名使用。海外对照来自 USDA FoodData Central Foundation Foods（CC0）。中餐家常菜仍为配方估算。超市包装摘录来自 Open Food Facts（ODbL），不是 Woolworths 或 Coles 官方商品库。',
+  attribution: '澳洲主库来自 FSANZ AUSNUT 2023 与 AFCD Release 3，按 Data User Licence（CC BY-SA 3.0 Australia）署名使用。海外对照来自 USDA FoodData Central Foundation Foods、SR Legacy 与 FNDDS（CC0），不替代澳洲官方值。中餐家常菜仍为配方估算。超市包装摘录来自 Open Food Facts（ODbL），不是 Woolworths 或 Coles 官方商品库。',
   licenceNote: 'FSANZ 数据须署名、ShareAlike，并附数据局限性声明；不得暗示 FSANZ 背书或使用 FSANZ 标志。USDA 数据为公有领域，须标明美国样品、仅作对照。Open Food Facts 摘录按 ODbL 署名。',
   limitationOfData: importStats.licence.limitationOfData,
   licenceUrl: 'https://www.foodstandards.gov.au/science-data/monitoringnutrients/afcd/datauserlicenceagreement',

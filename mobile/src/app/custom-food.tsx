@@ -1,10 +1,10 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Card, PrimaryButton, Screen } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
 import { validateFoodDraft } from '@/domain/food-validation';
-import { useNutrition } from '@/store/nutrition-store';
+import { usePersonalFoods } from '@/store/nutrition-store';
 import type { CustomFoodDraft, FoodCategory } from '@/types/nutrition';
 
 const categories: { id: FoodCategory; label: string }[] = [
@@ -22,8 +22,10 @@ function numeric(value: string) {
 }
 
 export default function CustomFoodScreen() {
-  const { createCustomFood } = useNutrition();
-  const [form, setForm] = useState(initial);
+  const { barcode: barcodeParam } = useLocalSearchParams<{ barcode?: string }>();
+  const barcodeSeed = Array.isArray(barcodeParam) ? barcodeParam[0] ?? '' : barcodeParam ?? '';
+  const { createCustomFood } = usePersonalFoods();
+  const [form, setForm] = useState({ ...initial, barcode: barcodeSeed });
   const [category, setCategory] = useState<FoodCategory>('mixed');
   const [error, setError] = useState('');
   const set = (key: keyof typeof initial, value: string) => setForm((current) => ({ ...current, [key]: value }));

@@ -9,13 +9,17 @@ import {
   closestPortionLabel, displayFoodName, entriesForDate, foodGroupServes, formatEnergy, formatEnergyPair, formatNumber,
   latestMealBefore, localDateKey, mealCardsForDate, mealItemNames, mealLabels, oilLevelLabels, shiftDateKey, totalForEntries,
 } from '@/domain/nutrition';
-import { useNutrition } from '@/store/nutrition-store';
+import { useDiary, usePersonalFoods, useProfile, useRecipes, useSession } from '@/store/nutrition-store';
 import type { MealType } from '@/types/nutrition';
 
 const meals: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 
 export default function LogScreen() {
-  const { entries, profile, customFoods, hydrated, deleteEntry, copyMeal, saveRecipeFromMeal, undoDelete, undoLabel } = useNutrition();
+  const { entries, deleteEntry, copyMeal, undoDelete, undoLabel } = useDiary();
+  const { profile } = useProfile();
+  const { customFoods } = usePersonalFoods();
+  const { saveRecipeFromMeal } = useRecipes();
+  const { hydrated } = useSession();
   const foods = useFoodRepository();
   const [dateKey, setDateKey] = useState(localDateKey());
   if (!hydrated) return <LoadingScreen />;
@@ -40,7 +44,7 @@ export default function LogScreen() {
     <Card style={styles.summary}>
       <View style={styles.energyHeader}><View><Text style={styles.summaryLabel}>总能量</Text><Text style={styles.summaryEnergy}>{formatEnergy(total.energyKcal, profile.energyUnit)}</Text></View><Text style={styles.itemCount}>{today.length} 项</Text></View>
       <Text style={styles.pair}>{formatEnergyPair(total.energyKcal)}</Text>
-      <Text style={styles.groupLine}>蔬菜 {formatNumber(groups.vegetableServes, 1)}/{profile.targets.vegetableServes} · 主食 {formatNumber(groups.grainServes, 1)}/{profile.targets.grainServes} · 蛋白质 {formatNumber(groups.proteinServes, 1)}/{profile.targets.proteinServes} · 钠 {formatNumber(total.sodiumMg)} mg</Text>
+      <Text style={styles.groupLine}>蔬菜 {formatNumber(groups.vegetableServes, 1)}/{profile.targets.vegetableServes} · 水果 {formatNumber(groups.fruitServes, 1)}/2 · 主食 {formatNumber(groups.grainServes, 1)}/{profile.targets.grainServes} · 蛋白质 {formatNumber(groups.proteinServes, 1)}/{profile.targets.proteinServes} · 钠 {formatNumber(total.sodiumMg)} mg</Text>
     </Card>
 
     {meals.map((meal) => {

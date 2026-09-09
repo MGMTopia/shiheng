@@ -8,7 +8,7 @@ import { catalogMeta, catalogSourceFilters, foodCategories, loggedFoodIds, SEARC
 import { useFoodRepository } from '@/data/food-repository-context';
 import { mergedRecipes } from '@/data/recipes';
 import { formatEnergyPair, mealItemNames, recipeEnergyPerServe } from '@/domain/nutrition';
-import { useNutrition } from '@/store/nutrition-store';
+import { useDiary, usePersonalFoods, useRecipes } from '@/store/nutrition-store';
 import { incrementLocalMetric } from '@/services/local-metrics';
 import type { CatalogSourceFilter, Food, FoodCategory } from '@/types/nutrition';
 
@@ -23,7 +23,9 @@ const quickAdds = [
 
 export default function SearchScreen() {
   const { dateKey } = useLocalSearchParams<{ dateKey?: string }>();
-  const { customFoods, favouriteFoodIds, entries, verifiedFoodIds, recipes } = useNutrition();
+  const { customFoods, favouriteFoodIds, verifiedFoodIds } = usePersonalFoods();
+  const { entries } = useDiary();
+  const { recipes } = useRecipes();
   const foods = useFoodRepository();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -88,6 +90,7 @@ export default function SearchScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow}>
         {quickAdds.map((item) => <Pressable key={item.id} onPress={() => openFood(item.id)} style={styles.quickChip}><Text style={styles.quickText}>{item.label}</Text></Pressable>)}
         <Pressable onPress={() => router.push('/custom-food')} style={[styles.quickChip, styles.quickCustom]}><Text style={styles.quickCustomText}>自定义</Text></Pressable>
+        <Pressable onPress={() => router.push({ pathname: '/scan', params: dateKey ? { dateKey: Array.isArray(dateKey) ? dateKey[0] : dateKey } : {} })} style={[styles.quickChip, styles.quickCustom]}><Text style={styles.quickCustomText}>扫条码</Text></Pressable>
       </ScrollView>
 
       {!showBrowse && <>

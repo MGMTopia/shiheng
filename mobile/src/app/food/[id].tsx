@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Card, PrimaryButton, Screen, SourceBadge, TextButton } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
 import { packagedFoods } from '@/data/packaged-foods';
@@ -10,10 +10,10 @@ import { statusForFood } from '@/data/catalog-constants';
 import { pickRepresentative, shortSourceTitle, sourcePriority } from '@/domain/catalog-groups';
 import {
   applyOilLevel, catalogStatusLabels, compositionEstimate, confidenceLabels, dateKeyToRecordedAt, defaultPortionShare, displayFoodName, displaySourceLabel,
-  foodSupportsOilLevel, formatEnergyPair, formatNumber, mealLabels, nutrientsForServing, oilLevelLabels,
-  portionChoices, regionLabels, scaleNutrients, suggestedMealSlot,
+  foodSupportsOilLevel, formatEnergyPair, formatNumber, massFromServings, mealLabels, nutrientsForServing, oilLevelLabels,
+  portionChoices, regionLabels, scaleNutrients, servingMassUnit, servingsFromMass, suggestedMealSlot,
 } from '@/domain/nutrition';
-import { useNutrition } from '@/store/nutrition-store';
+import { useDiary, usePersonalFoods } from '@/store/nutrition-store';
 import type { MealType, OilLevel } from '@/types/nutrition';
 
 const meals: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
@@ -25,7 +25,8 @@ export function generateStaticParams() {
 
 export default function FoodDetailScreen() {
   const { id, dateKey, replaceEntryId } = useLocalSearchParams<{ id: string; dateKey?: string; replaceEntryId?: string }>();
-  const { addEntry, updateEntry, customFoods, favouriteFoodIds, entries, verifiedFoodIds, toggleFavourite, toggleVerified, portionMemory } = useNutrition();
+  const { addEntry, updateEntry, portionMemory, entries } = useDiary();
+  const { customFoods, favouriteFoodIds, verifiedFoodIds, toggleFavourite, toggleVerified } = usePersonalFoods();
   const foods = useFoodRepository();
   const members = useMemo(() => foods.cluster(id, customFoods), [customFoods, foods, id]);
   const foodIndex = useMemo(() => foods.getByIds([
@@ -47,7 +48,9 @@ export default function FoodDetailScreen() {
   const [sharedWith, setSharedWith] = useState(remembered?.sharedWith ?? 1);
   const [portionShare, setPortionShare] = useState(remembered?.portionShare ?? 1);
   const [per100, setPer100] = useState(false);
+  const [massText, setMassText] = useState<string | null>(null);
   const showOil = food ? foodSupportsOilLevel(food) : false;
+  const massUnit = food ? servingMassUnit(food) : 'g';
   const titleFood = members.find((item) => /[\u4e00-\u9fff]/.test(item.nameZh) && item.nameZh !== item.nameEn) ?? food;
   const sources = useMemo(() => members.slice().sort((a, b) => sourcePriority(b) - sourcePriority(a)), [members]);
   const nutrients = food
@@ -110,10 +113,27 @@ export default function FoodDetailScreen() {
     </Card> : null}
 
     <View style={styles.section}><Text style={styles.sectionLabel}>份量</Text><Card style={styles.servingCard}>
-      <View style={styles.servingCopy}><Text style={styles.servingName} numberOfLines={2}>{food.servingLabel}</Text><Text style={styles.servingGrams}>{food.servingGrams}g × {servings}{remembered ? ' · 上次份量' : ''}</Text></View>
-      <View style={styles.stepper}><Pressable onPress={() => setServings((value) => Math.max(0.5, value - 0.5))} style={styles.stepButton}><Text style={styles.stepText}>−</Text></Pressable><Text style={styles.servingValue}>{servings}</Text><Pressable onPress={() => setServings((value) => Math.min(5, value + 0.5))} style={styles.stepButton}><Text style={styles.stepText}>＋</Text></Pressable></View>
+      <View style={styles.servingCopy}><Text style={styles.servingName} numberOfLines={2}>{food.servingLabel}</Text><Text style={styles.servingGrams}>{food.servingGrams}{massUnit} × {servings}{remembered ? ' · 上次份量' : ''}</Text></View>
+      <View style={styles.stepper}><Pressable onPress={() => { setMassText(null); setServings((value) => Math.max(0.5, value - 0.5)); }} style={styles.stepButton}><Text style={styles.stepText}>−</Text></Pressable><Text style={styles.servingValue}>{servings}</Text><Pressable onPress={() => { setMassText(null); setServings((value) => Math.min(5, value + 0.5)); }} style={styles.stepButton}><Text style={styles.stepText}>＋</Text></Pressable></View>
     </Card>
-    <View style={styles.chips}>{[0.5, 1, 1.5, 2].map((value) => <Pressable key={value} onPress={() => setServings(value)} style={[styles.chip, servings === value && styles.chipActive]}><Text style={[styles.chipText, servings === value && styles.chipTextActive]}>{value} 份</Text></Pressable>)}</View>
+    <View style={styles.massRow}>
+      <TextInput
+        value={massText ?? String(massFromServings(food, servings))}
+        onFocus={() => setMassText(String(massFromServings(food, servings)))}
+        onBlur={() => setMassText(null)}
+        onChangeText={(value) => {
+          setMassText(value);
+          const parsed = Number(value.replace(',', '.'));
+          if (Number.isFinite(parsed) && parsed > 0) setServings(servingsFromMass(food, parsed));
+        }}
+        keyboardType="decimal-pad"
+        style={styles.massInput}
+        accessibilityLabel={massUnit === 'ml' ? '毫升' : '克数'}
+      />
+      <Text style={styles.massUnit}>{massUnit === 'ml' ? '毫升' : '克'}</Text>
+      <Text style={styles.shareHint}>约 {servings} 份</Text>
+    </View>
+    <View style={styles.chips}>{[0.5, 1, 1.5, 2].map((value) => <Pressable key={value} onPress={() => { setMassText(null); setServings(value); }} style={[styles.chip, servings === value && styles.chipActive]}><Text style={[styles.chipText, servings === value && styles.chipTextActive]}>{value} 份</Text></Pressable>)}</View>
     </View>
 
     {showOil ? <View style={styles.section}><Text style={styles.sectionLabel}>用油</Text><View style={styles.chips}>{oilLevels.map((level) => <Pressable key={level} onPress={() => setOilLevel(level)} style={[styles.chip, oilLevel === level && styles.chipActive]}><Text style={[styles.chipText, oilLevel === level && styles.chipTextActive]}>{oilLevelLabels[level]}</Text></Pressable>)}</View></View> : null}
@@ -130,7 +150,7 @@ export default function FoodDetailScreen() {
 
     <View style={styles.section}><Text style={styles.sectionLabel}>记录到</Text><View style={styles.meals}>{meals.map((item) => <Pressable key={item} onPress={() => setMeal(item)} style={[styles.meal, meal === item && styles.mealActive]}><Text style={[styles.mealText, meal === item && styles.mealTextActive]}>{mealLabels[item]}</Text></Pressable>)}</View></View>
 
-    <Card><View style={styles.sourceHeader}><Text style={styles.sectionLabel}>营养成分</Text><Pressable onPress={() => setPer100((value) => !value)}><Text style={styles.sourceLabel}>{per100 ? '每100g' : '当前份量'}</Text></Pressable></View>
+    <Card><View style={styles.sourceHeader}><Text style={styles.sectionLabel}>营养成分</Text><Pressable onPress={() => setPer100((value) => !value)}><Text style={styles.sourceLabel}>{per100 ? (massUnit === 'ml' ? '每100ml' : '每100g') : '当前份量'}</Text></Pressable></View>
       <Text style={styles.shareHint}>{formatEnergyPair(displayNutrients.energyKcal)}</Text>
       <View style={styles.nutrientGrid}>
         {([
@@ -164,6 +184,9 @@ const styles = StyleSheet.create({
   shareCard: { gap: spacing.md },
   servingCopy: { flex: 1, minWidth: 0, paddingRight: spacing.sm },
   servingName: { color: colors.ink, fontSize: 16, fontWeight: '700' }, servingGrams: { color: colors.inkMuted, fontSize: 12, marginTop: 3 },
+  massRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  massInput: { minHeight: 44, minWidth: 96, borderWidth: 1, borderColor: colors.border, borderRadius: radii.sm, paddingHorizontal: spacing.md, color: colors.ink, backgroundColor: colors.surface, fontSize: 16, fontWeight: '700' },
+  massUnit: { color: colors.ink, fontSize: 14, fontWeight: '700' },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flexShrink: 0 },
   stepButton: { width: 38, height: 38, borderRadius: radii.pill, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' }, stepText: { color: colors.brand, fontSize: 20, fontWeight: '700' }, servingValue: { minWidth: 28, color: colors.ink, fontSize: 17, fontWeight: '800', textAlign: 'center' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

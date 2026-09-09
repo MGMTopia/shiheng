@@ -133,6 +133,7 @@ export type FoodGroupTotals = {
   vegetableServes: number;
   grainServes: number;
   proteinServes: number;
+  fruitServes: number;
 };
 
 export type MealCard = {

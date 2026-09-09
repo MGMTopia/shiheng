@@ -175,7 +175,7 @@ export function inferChineseNames(foods: Food[]): Food[] {
     if (key && !familyToZh.has(key)) familyToZh.set(key, seed.nameZh);
   }
   return foods.map((food) => {
-    if (food.tags.includes('off-bulk') || food.source.dataset === 'user-entry') return food;
+    if (food.tags.includes('off-bulk') || food.tags.includes('usda-fndds') || food.source.dataset === 'user-entry') return food;
     if (/[\u4e00-\u9fff]/.test(food.nameZh) && food.nameZh !== food.nameEn) return food;
     const key = familyKey(food);
     const nameZh = (key ? familyToZh.get(key) ?? chineseFromFamilyParts(key, familyToZh) : undefined)
@@ -296,7 +296,7 @@ export function buildClusterIndex(foods: Food[]): Map<string, string> {
   }
   const familyGroups = new Map<string, string[]>();
   for (const food of foods) {
-    if (food.source.dataset === 'user-entry' || food.tags.includes('off-bulk')) continue;
+    if (food.source.dataset === 'user-entry' || food.tags.includes('off-bulk') || food.tags.includes('usda-fndds')) continue;
     const key = familyKey(food);
     if (!key) continue;
     const list = familyGroups.get(key) ?? [];

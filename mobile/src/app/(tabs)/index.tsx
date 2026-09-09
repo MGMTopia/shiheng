@@ -6,16 +6,19 @@ import { StorageRecoveryBanner } from '@/components/storage-recovery-banner';
 import { Card, LoadingScreen, PrimaryButton, Screen, SectionTitle, TextButton } from '@/components/ui';
 import { colors, spacing } from '@/constants/theme';
 import { useFoodRepository } from '@/data/food-repository-context';
-import {
-  closestPortionLabel, displayFoodName, entriesForDate, foodGroupServes, formatEnergy, formatNumber,
-  kcalToKj, latestMealBefore, mealCardsForDate, mealItemNames, mealLabels, nextMealSuggestion, nutrientNumber,
+import { FRUIT_SERVE_TARGET, closestPortionLabel, displayFoodName, entriesForDate, foodGroupServes, formatEnergy, formatNumber,
+  frequentFoodIds, kcalToKj, latestMealBefore, mealCardsForDate, mealItemNames, mealLabels, nextMealSuggestion, nutrientNumber,
   oilLevelLabels, percent, recentFoodIds, suggestedMealSlot, totalForEntries,
 } from '@/domain/nutrition';
-import { useNutrition } from '@/store/nutrition-store';
+import { completenessHint, periodSummary } from '@/domain/trends';
+import { useDiary, usePersonalFoods, useProfile, useSession } from '@/store/nutrition-store';
 import type { MealType } from '@/types/nutrition';
 
 export default function TodayScreen() {
-  const { entries, profile, customFoods, hydrated, copyMeal, favouriteFoodIds, portionMemory } = useNutrition();
+  const { entries, copyMeal, portionMemory } = useDiary();
+  const { profile } = useProfile();
+  const { customFoods, favouriteFoodIds } = usePersonalFoods();
+  const { hydrated } = useSession();
   const foods = useFoodRepository();
   if (!hydrated) return <LoadingScreen />;
   const todayEntries = entriesForDate(entries);
@@ -32,6 +35,7 @@ export default function TodayScreen() {
   const energyShare = percent(total.energyKcal, profile.targets.energyKcal);
   const carbTarget = Math.round(profile.targets.energyKcal * 0.5 / 4);
   const fatTarget = Math.round(profile.targets.energyKcal * 0.3 / 9);
+  const week = periodSummary(entries, foodIndex, profile.targets, 7);
 
   return <Screen>
     <StorageRecoveryBanner />
@@ -69,10 +73,20 @@ export default function TodayScreen() {
           nutrientNumber(total.fibreG) < profile.targets.fibreG * 0.45 ? '膳食纤维不足' : null,
           nutrientNumber(total.sodiumMg) > profile.targets.sodiumMg * 0.8 ? '钠偏高' : null,
           groups.vegetableServes < profile.targets.vegetableServes * 0.45 ? '蔬菜偏少' : null,
+          groups.fruitServes < FRUIT_SERVE_TARGET * 0.45 ? '水果偏少' : null,
         ].filter(Boolean).join(' · ') || '目前没有突出的结构偏差。'}</Text>
       {todayEntries.length > 0 ? <Text style={styles.suggestion}>{nextMealSuggestion(total, profile.targets, groups)}</Text> : null}
+      {todayEntries.length > 0 ? <Text style={styles.groupLine}>蔬菜 {formatNumber(groups.vegetableServes, 1)}/{profile.targets.vegetableServes} · 水果 {formatNumber(groups.fruitServes, 1)}/{FRUIT_SERVE_TARGET} · 主食 {formatNumber(groups.grainServes, 1)}/{profile.targets.grainServes} · 蛋白质 {formatNumber(groups.proteinServes, 1)}/{profile.targets.proteinServes}</Text> : null}
       <Text style={styles.disclaimer}>家常菜和合菜是估算。不完整记录时，统计只反映已记下的食物。</Text>
     </Card>
+
+    <Pressable onPress={() => router.push('/trends')}>
+      <Card style={styles.repeatCard}>
+        <Text style={styles.repeatTitle}>近 7 天趋势</Text>
+        <Text style={styles.repeatMeta}>{completenessHint(week)}{week.averageEnergyKcal != null ? ` 日均 ${formatEnergy(week.averageEnergyKcal, profile.energyUnit)}。` : ''}</Text>
+        <Text style={styles.repeatMeta}>查看 7/30 天平均、完整度和可执行建议。</Text>
+      </Card>
+    </Pressable>
 
     {(() => {
       const shortcuts = favouriteFoodIds.slice(0, 12).map((foodId) => foodIndex[foodId]).filter(Boolean);
@@ -94,6 +108,23 @@ export default function TodayScreen() {
         <Text style={styles.repeatTitle}>最近吃过</Text>
         {recent.map((food) => (
           <TextButton key={food.id} label={`${displayFoodName(food)} · 再用上次份量`} onPress={() => router.push({ pathname: '/food/[id]', params: { id: food.id } })} />
+        ))}
+      </Card>;
+    })()}
+
+    {(() => {
+      const recentSet = new Set(recentFoodIds(entries, 6));
+      const shortcutSet = new Set(favouriteFoodIds.slice(0, 12));
+      const frequent = frequentFoodIds(entries, 8)
+        .filter((id) => !recentSet.has(id) && !shortcutSet.has(id))
+        .map((foodId) => foodIndex[foodId])
+        .filter(Boolean)
+        .slice(0, 6);
+      if (!frequent.length) return null;
+      return <Card style={styles.repeatCard}>
+        <Text style={styles.repeatTitle}>最常吃</Text>
+        {frequent.map((food) => (
+          <TextButton key={food.id} label={`${displayFoodName(food)} · ${entries.filter((entry) => entry.foodId === food.id).length} 次`} onPress={() => router.push({ pathname: '/food/[id]', params: { id: food.id } })} />
         ))}
       </Card>;
     })()}
@@ -159,6 +190,7 @@ const styles = StyleSheet.create({
   suggestionKicker: { color: colors.brand, fontSize: 12, fontWeight: '800', marginBottom: spacing.sm },
   suggestion: { color: colors.ink, fontSize: 16, lineHeight: 24, fontWeight: '600' },
   disclaimer: { color: colors.inkMuted, fontSize: 11, lineHeight: 17, marginTop: spacing.md },
+  groupLine: { color: colors.inkMuted, fontSize: 12, lineHeight: 18, marginTop: spacing.sm },
   repeatCard: { backgroundColor: colors.amberSoft, borderColor: '#E9CF9E', gap: spacing.sm },
   repeatTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
   repeatMeta: { color: colors.inkMuted, fontSize: 13, lineHeight: 20 },

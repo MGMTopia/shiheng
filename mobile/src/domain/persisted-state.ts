@@ -3,6 +3,10 @@ import type {
 } from '@/types/nutrition';
 
 export const STORAGE_KEY = '@shiheng/state/v1';
+export const DIARY_STORAGE_KEY = '@shiheng/diary/v1';
+export const PROFILE_STORAGE_KEY = '@shiheng/profile/v1';
+export const PERSONAL_FOODS_STORAGE_KEY = '@shiheng/personal-foods/v1';
+export const RECIPES_STORAGE_KEY = '@shiheng/recipes/v1';
 export const CORRUPT_STORAGE_KEY = '@shiheng/state/corrupt-v1';
 export const LAST_BACKUP_KEY = '@shiheng/last-backup-at';
 export const CATALOG_DB_NAME_KEY = '@shiheng/catalog-db-name';
@@ -64,6 +68,92 @@ export function serializePersistedState(snapshot: PersistedSnapshot): string {
     ...snapshot,
     stateVersion: STATE_VERSION,
   });
+}
+
+export type PersistedSlices = {
+  diary: string;
+  profile: string;
+  personalFoods: string;
+  recipes: string;
+};
+
+export function serializePersistedSlices(snapshot: PersistedSnapshot): PersistedSlices {
+  return {
+    diary: JSON.stringify({
+      stateVersion: STATE_VERSION,
+      entries: snapshot.entries,
+      portionMemory: snapshot.portionMemory,
+    }),
+    profile: JSON.stringify({
+      stateVersion: STATE_VERSION,
+      profile: snapshot.profile,
+    }),
+    personalFoods: JSON.stringify({
+      stateVersion: STATE_VERSION,
+      customFoods: snapshot.customFoods,
+      favouriteFoodIds: snapshot.favouriteFoodIds,
+      verifiedFoodIds: snapshot.verifiedFoodIds,
+    }),
+    recipes: JSON.stringify({
+      stateVersion: STATE_VERSION,
+      recipes: snapshot.recipes,
+    }),
+  };
+}
+
+export function parseSplitPersistedState(parts: {
+  legacy?: string | null;
+  diary?: string | null;
+  profile?: string | null;
+  personalFoods?: string | null;
+  recipes?: string | null;
+}): RestoreResult {
+  const hasSlices = Boolean(parts.diary || parts.profile || parts.personalFoods || parts.recipes);
+  if (!hasSlices) return parsePersistedState(parts.legacy);
+
+  const diary = parts.diary ? parsePersistedState(parts.diary) : null;
+  const profile = parts.profile ? parsePersistedState(parts.profile) : null;
+  const personal = parts.personalFoods ? parsePersistedState(parts.personalFoods) : null;
+  const recipes = parts.recipes ? parsePersistedState(parts.recipes) : null;
+  const failed = [diary, profile, personal, recipes].find((slice) => slice && !slice.writable);
+  if (failed) return failed;
+
+  const snapshot = emptySnapshot();
+  const dropped = emptyDropped();
+  const addDropped = (slice: RestoreResult | null) => {
+    if (!slice || slice.status === 'empty') return;
+    dropped.entries += slice.dropped.entries;
+    dropped.customFoods += slice.dropped.customFoods;
+    dropped.recipes += slice.dropped.recipes;
+    dropped.ids += slice.dropped.ids;
+  };
+  if (diary) {
+    snapshot.entries = diary.snapshot.entries;
+    snapshot.portionMemory = diary.snapshot.portionMemory;
+    addDropped(diary);
+  }
+  if (profile) {
+    snapshot.profile = profile.snapshot.profile;
+    addDropped(profile);
+  }
+  if (personal) {
+    snapshot.customFoods = personal.snapshot.customFoods;
+    snapshot.favouriteFoodIds = personal.snapshot.favouriteFoodIds;
+    snapshot.verifiedFoodIds = personal.snapshot.verifiedFoodIds;
+    addDropped(personal);
+  }
+  if (recipes) {
+    snapshot.recipes = recipes.snapshot.recipes;
+    addDropped(recipes);
+  }
+
+  return {
+    status: 'ok',
+    snapshot,
+    migratedFrom: STATE_VERSION,
+    dropped,
+    writable: true,
+  };
 }
 
 export function parsePersistedState(raw: string | null | undefined): RestoreResult {
@@ -183,6 +273,34 @@ export function createSerialWriter(write: (value: string) => Promise<void>) {
   return {
     enqueue(value: string): Promise<void> {
       pending = value;
+      if (!scheduled) {
+        scheduled = true;
+        chain = chain.then(flush, flush);
+      }
+      return chain;
+    },
+  };
+}
+
+export function createKeyedSerialWriter(write: (key: string, value: string) => Promise<void>) {
+  let chain = Promise.resolve();
+  const pending = new Map<string, string>();
+  let scheduled = false;
+
+  const flush = async () => {
+    scheduled = false;
+    while (pending.size) {
+      const batch = [...pending.entries()];
+      pending.clear();
+      for (const [key, value] of batch) {
+        await write(key, value);
+      }
+    }
+  };
+
+  return {
+    enqueue(key: string, value: string): Promise<void> {
+      pending.set(key, value);
       if (!scheduled) {
         scheduled = true;
         chain = chain.then(flush, flush);

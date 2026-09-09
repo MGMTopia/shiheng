@@ -9,7 +9,7 @@ import {
   defaultPortionShare, displayFoodName, displaySourceLabel, formatEnergyPair, formatNumber, mealItemNames, mealLabels, oilLevelLabels,
   portionChoices, recipeEnergyPerServe, suggestedMealSlot, totalForEntries,
 } from '@/domain/nutrition';
-import { useNutrition } from '@/store/nutrition-store';
+import { usePersonalFoods, useRecipes } from '@/store/nutrition-store';
 import type { FoodLogEntry, MealType } from '@/types/nutrition';
 
 const meals: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
@@ -20,7 +20,8 @@ export function generateStaticParams() {
 
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { recipes, customFoods, logRecipe } = useNutrition();
+  const { recipes, logRecipe } = useRecipes();
+  const { customFoods } = usePersonalFoods();
   const foods = useFoodRepository();
   const recipe = useMemo(() => findRecipe(id, recipes), [id, recipes]);
   const foodIndex = useMemo(

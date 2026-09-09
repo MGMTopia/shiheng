@@ -8,7 +8,7 @@ import {
   dateKeyToRecordedAt, defaultPortionShare, displayFoodName, foodSupportsOilLevel, formatEnergyPair, localDateKey,
   mealLabels, oilLevelLabels, portionChoices, shiftDateKey,
 } from '@/domain/nutrition';
-import { useNutrition } from '@/store/nutrition-store';
+import { useDiary, usePersonalFoods } from '@/store/nutrition-store';
 import type { MealType, OilLevel } from '@/types/nutrition';
 
 const meals: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
@@ -16,7 +16,8 @@ const oilLevels: OilLevel[] = ['light', 'normal', 'restaurant'];
 
 export default function LogEntryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { entries, customFoods, updateEntry, deleteEntry } = useNutrition();
+  const { entries, updateEntry, deleteEntry } = useDiary();
+  const { customFoods } = usePersonalFoods();
   const foods = useFoodRepository();
   const entry = entries.find((item) => item.id === id);
   const foodIndex = foods.getByIds(entry ? [entry.foodId] : [], customFoods);

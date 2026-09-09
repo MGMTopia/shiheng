@@ -1,10 +1,12 @@
 export const importStats = {
-  "updatedAt": "2026-09-04",
+  "updatedAt": "2026-09-08",
   "ausnut": 3741,
   "afcdExtra": 387,
   "usdaFoundation": 363,
-  "withUsdaReference": 779,
-  "totalImported": 4491,
+  "usdaSrLegacy": 7677,
+  "usdaFndds": 600,
+  "withUsdaReference": 2602,
+  "totalImported": 12768,
   "licence": {
     "fsanz": "CC BY-SA 3.0 Australia + FSANZ Data User Licence",
     "usda": "CC0 1.0",

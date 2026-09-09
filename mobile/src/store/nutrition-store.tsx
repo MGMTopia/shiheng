@@ -1,17 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { CustomFood, CustomFoodDraft, FoodLogEntry, MealType, OilLevel, PortionMemory, Recipe, UserProfile } from '@/types/nutrition';
 import { findRecipe } from '@/data/recipes';
 import { dateKeyToRecordedAt, localDateKey } from '@/domain/nutrition';
 import {
   CORRUPT_STORAGE_KEY,
+  DIARY_STORAGE_KEY,
   LAST_BACKUP_KEY,
+  PERSONAL_FOODS_STORAGE_KEY,
+  PROFILE_STORAGE_KEY,
+  RECIPES_STORAGE_KEY,
   STORAGE_KEY,
-  createSerialWriter,
+  createKeyedSerialWriter,
   defaultProfile,
   emptySnapshot,
-  parsePersistedState,
-  serializePersistedState,
+  parseSplitPersistedState,
+  serializePersistedSlices,
   type PersistedSnapshot,
   type RestoreError,
 } from '@/domain/persisted-state';
@@ -38,18 +42,22 @@ export type EntryPatch = Partial<Pick<FoodLogEntry, 'foodId' | 'servings' | 'mea
 
 export type LoadState = 'loading' | 'ready' | 'failed';
 
-type NutritionStore = {
-  entries: FoodLogEntry[];
-  profile: UserProfile;
-  customFoods: CustomFood[];
-  favouriteFoodIds: string[];
-  verifiedFoodIds: string[];
-  recipes: Recipe[];
-  portionMemory: Record<string, PortionMemory>;
+export type SessionStore = {
   hydrated: boolean;
   loadState: LoadState;
   loadError: RestoreError | 'read-failed' | null;
   lastBackupAt: string | null;
+  replaceSnapshot: (snapshot: PersistedSnapshot) => void;
+  currentSnapshot: () => PersistedSnapshot;
+  markBackupSaved: (exportedAt: string) => void;
+  startFreshAfterFailure: () => Promise<void>;
+  retryLoad: () => void;
+  clearAllPersonalData: () => void;
+};
+
+export type DiaryStore = {
+  entries: FoodLogEntry[];
+  portionMemory: Record<string, PortionMemory>;
   undoLabel: string | null;
   addEntry: (input: AddEntryInput) => void;
   updateEntry: (id: string, patch: EntryPatch) => void;
@@ -57,22 +65,34 @@ type NutritionStore = {
   undoDelete: () => void;
   copyEntry: (id: string, dateKey?: string) => void;
   copyMeal: (meal: MealType, fromDateKey?: string, toDateKey?: string) => void;
-  logRecipe: (recipeId: string, meal: MealType, sharedWith?: number, portionShare?: number, dateKey?: string) => void;
-  saveRecipeFromMeal: (meal: MealType, dateKey?: string, nameZh?: string) => Recipe | null;
+  clearEntries: () => void;
+};
+
+export type ProfileStore = {
+  profile: UserProfile;
+  updateProfile: (profile: UserProfile) => void;
+};
+
+export type PersonalFoodsStore = {
+  customFoods: CustomFood[];
+  favouriteFoodIds: string[];
+  verifiedFoodIds: string[];
   createCustomFood: (draft: CustomFoodDraft) => void;
   toggleFavourite: (foodId: string) => void;
   toggleVerified: (foodId: string) => void;
-  updateProfile: (profile: UserProfile) => void;
-  clearEntries: () => void;
-  clearAllPersonalData: () => void;
-  replaceSnapshot: (snapshot: PersistedSnapshot) => void;
-  currentSnapshot: () => PersistedSnapshot;
-  markBackupSaved: (exportedAt: string) => void;
-  startFreshAfterFailure: () => Promise<void>;
-  retryLoad: () => void;
 };
 
-const NutritionContext = createContext<NutritionStore | null>(null);
+export type RecipesStore = {
+  recipes: Recipe[];
+  logRecipe: (recipeId: string, meal: MealType, sharedWith?: number, portionShare?: number, dateKey?: string) => void;
+  saveRecipeFromMeal: (meal: MealType, dateKey?: string, nameZh?: string) => Recipe | null;
+};
+
+const SessionContext = createContext<SessionStore | null>(null);
+const DiaryContext = createContext<DiaryStore | null>(null);
+const ProfileContext = createContext<ProfileStore | null>(null);
+const PersonalFoodsContext = createContext<PersonalFoodsStore | null>(null);
+const RecipesContext = createContext<RecipesStore | null>(null);
 
 function newId(prefix = ''): string {
   return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -82,6 +102,11 @@ function recordedAtFor(input: { recordedAt?: string; dateKey?: string }): string
   if (input.recordedAt) return input.recordedAt;
   if (input.dateKey) return dateKeyToRecordedAt(input.dateKey);
   return new Date().toISOString();
+}
+
+function requireStore<T>(value: T | null, name: string): T {
+  if (!value) throw new Error(`${name} must be used within NutritionProvider`);
+  return value;
 }
 
 export function NutritionProvider({ children }: PropsWithChildren) {
@@ -99,7 +124,9 @@ export function NutritionProvider({ children }: PropsWithChildren) {
   const writable = useRef(false);
   const pendingUndo = useRef<FoodLogEntry[] | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const writer = useRef(createSerialWriter((value) => AsyncStorage.setItem(STORAGE_KEY, value)));
+  const writer = useRef(createKeyedSerialWriter((key, value) => AsyncStorage.setItem(key, value)));
+  const snapshotRef = useRef<PersistedSnapshot>(emptySnapshot());
+  const legacyCleared = useRef(false);
 
   const applySnapshot = (snapshot: PersistedSnapshot) => {
     setEntries(snapshot.entries);
@@ -112,13 +139,32 @@ export function NutritionProvider({ children }: PropsWithChildren) {
   };
 
   useEffect(() => {
+    snapshotRef.current = {
+      ...emptySnapshot(),
+      entries,
+      profile,
+      customFoods,
+      favouriteFoodIds,
+      verifiedFoodIds,
+      recipes,
+      portionMemory,
+    };
+  }, [entries, profile, customFoods, favouriteFoodIds, verifiedFoodIds, recipes, portionMemory]);
+
+  useEffect(() => {
     let active = true;
     Promise.all([
       AsyncStorage.getItem(STORAGE_KEY),
+      AsyncStorage.getItem(DIARY_STORAGE_KEY),
+      AsyncStorage.getItem(PROFILE_STORAGE_KEY),
+      AsyncStorage.getItem(PERSONAL_FOODS_STORAGE_KEY),
+      AsyncStorage.getItem(RECIPES_STORAGE_KEY),
       AsyncStorage.getItem(LAST_BACKUP_KEY),
-    ]).then(([raw, backupAt]) => {
+    ]).then(([legacy, diary, profileRaw, personalFoods, recipesRaw, backupAt]) => {
       if (!active) return;
-      const restored = parsePersistedState(raw);
+      const restored = parseSplitPersistedState({
+        legacy, diary, profile: profileRaw, personalFoods, recipes: recipesRaw,
+      });
       if (!restored.writable) {
         writable.current = false;
         setLoadError(restored.error ?? 'read-failed');
@@ -144,21 +190,32 @@ export function NutritionProvider({ children }: PropsWithChildren) {
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
+  const persistSlice = useCallback((key: string, value: string) => {
     if (loadState !== 'ready' || !writable.current) return;
-    writer.current.enqueue(serializePersistedState({
-      ...emptySnapshot(),
-      entries,
-      profile,
-      customFoods,
-      favouriteFoodIds,
-      verifiedFoodIds,
-      recipes,
-      portionMemory,
-    })).catch(() => {
+    writer.current.enqueue(key, value).then(() => {
+      if (legacyCleared.current) return;
+      legacyCleared.current = true;
+      return AsyncStorage.removeItem(STORAGE_KEY);
+    }).catch(() => {
       incrementLocalMetric('storage_write_failed').catch(() => undefined);
     });
-  }, [entries, profile, customFoods, favouriteFoodIds, verifiedFoodIds, recipes, portionMemory, loadState]);
+  }, [loadState]);
+
+  useEffect(() => {
+    persistSlice(DIARY_STORAGE_KEY, serializePersistedSlices(snapshotRef.current).diary);
+  }, [entries, persistSlice, portionMemory]);
+
+  useEffect(() => {
+    persistSlice(PROFILE_STORAGE_KEY, serializePersistedSlices(snapshotRef.current).profile);
+  }, [persistSlice, profile]);
+
+  useEffect(() => {
+    persistSlice(PERSONAL_FOODS_STORAGE_KEY, serializePersistedSlices(snapshotRef.current).personalFoods);
+  }, [customFoods, favouriteFoodIds, persistSlice, verifiedFoodIds]);
+
+  useEffect(() => {
+    persistSlice(RECIPES_STORAGE_KEY, serializePersistedSlices(snapshotRef.current).recipes);
+  }, [persistSlice, recipes]);
 
   const rememberPortion = (foodId: string, memory: PortionMemory) => {
     setPortionMemory((current) => ({ ...current, [foodId]: memory }));
@@ -174,9 +231,78 @@ export function NutritionProvider({ children }: PropsWithChildren) {
     }, UNDO_MS);
   };
 
-  const value = useMemo<NutritionStore>(() => ({
-    entries, profile, customFoods, favouriteFoodIds, verifiedFoodIds, recipes, portionMemory,
-    hydrated: loadState !== 'loading', loadState, loadError, lastBackupAt, undoLabel,
+  const sessionValue = useMemo<SessionStore>(() => ({
+    hydrated: loadState !== 'loading',
+    loadState,
+    loadError,
+    lastBackupAt,
+    replaceSnapshot: (snapshot) => {
+      applySnapshot(snapshot);
+      writable.current = true;
+      setLoadError(null);
+      setLoadState('ready');
+    },
+    currentSnapshot: () => snapshotRef.current,
+    markBackupSaved: (exportedAt) => {
+      setLastBackupAt(exportedAt);
+      AsyncStorage.setItem(LAST_BACKUP_KEY, exportedAt).catch(() => undefined);
+    },
+    startFreshAfterFailure: async () => {
+      const [legacy, diary, profileRaw, personalFoods, recipesRaw] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_KEY).catch(() => null),
+        AsyncStorage.getItem(DIARY_STORAGE_KEY).catch(() => null),
+        AsyncStorage.getItem(PROFILE_STORAGE_KEY).catch(() => null),
+        AsyncStorage.getItem(PERSONAL_FOODS_STORAGE_KEY).catch(() => null),
+        AsyncStorage.getItem(RECIPES_STORAGE_KEY).catch(() => null),
+      ]);
+      const restored = parseSplitPersistedState({
+        legacy, diary, profile: profileRaw, personalFoods, recipes: recipesRaw,
+      });
+      const raw = legacy
+        ?? JSON.stringify(restored.snapshot);
+      if (raw) await AsyncStorage.setItem(CORRUPT_STORAGE_KEY, raw).catch(() => undefined);
+      applySnapshot(emptySnapshot());
+      writable.current = true;
+      setLoadError(null);
+      setLoadState('ready');
+    },
+    retryLoad: () => {
+      setLoadState('loading');
+      Promise.all([
+        AsyncStorage.getItem(STORAGE_KEY),
+        AsyncStorage.getItem(DIARY_STORAGE_KEY),
+        AsyncStorage.getItem(PROFILE_STORAGE_KEY),
+        AsyncStorage.getItem(PERSONAL_FOODS_STORAGE_KEY),
+        AsyncStorage.getItem(RECIPES_STORAGE_KEY),
+        AsyncStorage.getItem(LAST_BACKUP_KEY),
+      ]).then(([legacy, diary, profileRaw, personalFoods, recipesRaw, backupAt]) => {
+        const restored = parseSplitPersistedState({
+          legacy, diary, profile: profileRaw, personalFoods, recipes: recipesRaw,
+        });
+        if (!restored.writable) {
+          writable.current = false;
+          setLoadError(restored.error ?? 'read-failed');
+          setLoadState('failed');
+          return;
+        }
+        applySnapshot(restored.snapshot);
+        setLastBackupAt(backupAt);
+        writable.current = true;
+        setLoadError(null);
+        setLoadState('ready');
+      }).catch(() => {
+        writable.current = false;
+        setLoadError('read-failed');
+        setLoadState('failed');
+      });
+    },
+    clearAllPersonalData: () => applySnapshot(emptySnapshot()),
+  }), [loadState, loadError, lastBackupAt]);
+
+  const diaryValue = useMemo<DiaryStore>(() => ({
+    entries,
+    portionMemory,
+    undoLabel,
     addEntry: (input) => {
       const recordedAt = recordedAtFor(input);
       setEntries((current) => [...current, {
@@ -245,8 +371,48 @@ export function NutritionProvider({ children }: PropsWithChildren) {
       incrementLocalMetric('meal_copied', copied.length).catch(() => undefined);
       return [...current, ...copied];
     }),
+    clearEntries: () => setEntries([]),
+  }), [entries, portionMemory, undoLabel]);
+
+  const profileValue = useMemo<ProfileStore>(() => ({
+    profile,
+    updateProfile: setProfile,
+  }), [profile]);
+
+  const personalFoodsValue = useMemo<PersonalFoodsStore>(() => ({
+    customFoods,
+    favouriteFoodIds,
+    verifiedFoodIds,
+    createCustomFood: (draft) => {
+      setCustomFoods((current) => [...current, {
+        ...draft,
+        id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        custom: true,
+        createdAt: new Date().toISOString(),
+        source: {
+          type: 'label', label: '用户根据包装或配方录入，尚未独立核验', region: 'AU/CN',
+          confidence: 'estimate', updatedAt: new Date().toISOString().slice(0, 10), dataset: 'user-entry',
+        },
+      }]);
+      incrementLocalMetric('custom_food_created').catch(() => undefined);
+    },
+    toggleFavourite: (foodId) => {
+      setFavouriteFoodIds((current) => current.includes(foodId) ? current.filter((id) => id !== foodId) : [...current, foodId]);
+      incrementLocalMetric('favourite_toggled').catch(() => undefined);
+    },
+    toggleVerified: (foodId) => {
+      setVerifiedFoodIds((current) => {
+        const next = current.includes(foodId) ? current.filter((id) => id !== foodId) : [...current, foodId];
+        incrementLocalMetric('food_verified').catch(() => undefined);
+        return next;
+      });
+    },
+  }), [customFoods, favouriteFoodIds, verifiedFoodIds]);
+
+  const recipesValue = useMemo<RecipesStore>(() => ({
+    recipes,
     logRecipe: (recipeId, meal, sharedWith, portionShare, dateKey) => {
-      const recipe = findRecipe(recipeId, recipes);
+      const recipe = findRecipe(recipeId, snapshotRef.current.recipes);
       if (!recipe?.items.length) return;
       const people = sharedWith ?? recipe.defaultSharedWith ?? 1;
       const share = portionShare ?? recipe.defaultPortionShare ?? 1;
@@ -280,7 +446,7 @@ export function NutritionProvider({ children }: PropsWithChildren) {
       incrementLocalMetric('recipe_logged').catch(() => undefined);
     },
     saveRecipeFromMeal: (meal, dateKey = localDateKey(), nameZh) => {
-      const sourceEntries = entries.filter((entry) => entry.meal === meal && localDateKey(new Date(entry.recordedAt)) === dateKey);
+      const sourceEntries = snapshotRef.current.entries.filter((entry) => entry.meal === meal && localDateKey(new Date(entry.recordedAt)) === dateKey);
       if (!sourceEntries.length) return null;
       const recipe: Recipe = {
         id: newId('household-'),
@@ -305,84 +471,37 @@ export function NutritionProvider({ children }: PropsWithChildren) {
       incrementLocalMetric('recipe_saved').catch(() => undefined);
       return recipe;
     },
-    createCustomFood: (draft) => { setCustomFoods((current) => [...current, {
-      ...draft,
-      id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      custom: true,
-      createdAt: new Date().toISOString(),
-      source: {
-        type: 'label', label: '用户根据包装或配方录入，尚未独立核验', region: 'AU/CN',
-        confidence: 'estimate', updatedAt: new Date().toISOString().slice(0, 10), dataset: 'user-entry',
-      },
-    }]); incrementLocalMetric('custom_food_created').catch(() => undefined); },
-    toggleFavourite: (foodId) => { setFavouriteFoodIds((current) => current.includes(foodId) ? current.filter((id) => id !== foodId) : [...current, foodId]); incrementLocalMetric('favourite_toggled').catch(() => undefined); },
-    toggleVerified: (foodId) => { setVerifiedFoodIds((current) => {
-      const next = current.includes(foodId) ? current.filter((id) => id !== foodId) : [...current, foodId];
-      incrementLocalMetric('food_verified').catch(() => undefined);
-      return next;
-    }); },
-    updateProfile: setProfile,
-    clearEntries: () => setEntries([]),
-    clearAllPersonalData: () => applySnapshot(emptySnapshot()),
-    replaceSnapshot: (snapshot) => {
-      applySnapshot(snapshot);
-      writable.current = true;
-      setLoadError(null);
-      setLoadState('ready');
-    },
-    currentSnapshot: () => ({
-      ...emptySnapshot(),
-      entries,
-      profile,
-      customFoods,
-      favouriteFoodIds,
-      verifiedFoodIds,
-      recipes,
-      portionMemory,
-    }),
-    markBackupSaved: (exportedAt) => {
-      setLastBackupAt(exportedAt);
-      AsyncStorage.setItem(LAST_BACKUP_KEY, exportedAt).catch(() => undefined);
-    },
-    startFreshAfterFailure: async () => {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY).catch(() => null);
-      if (raw) await AsyncStorage.setItem(CORRUPT_STORAGE_KEY, raw).catch(() => undefined);
-      applySnapshot(emptySnapshot());
-      writable.current = true;
-      setLoadError(null);
-      setLoadState('ready');
-    },
-    retryLoad: () => {
-      setLoadState('loading');
-      Promise.all([
-        AsyncStorage.getItem(STORAGE_KEY),
-        AsyncStorage.getItem(LAST_BACKUP_KEY),
-      ]).then(([raw, backupAt]) => {
-        const restored = parsePersistedState(raw);
-        if (!restored.writable) {
-          writable.current = false;
-          setLoadError(restored.error ?? 'read-failed');
-          setLoadState('failed');
-          return;
-        }
-        applySnapshot(restored.snapshot);
-        setLastBackupAt(backupAt);
-        writable.current = true;
-        setLoadError(null);
-        setLoadState('ready');
-      }).catch(() => {
-        writable.current = false;
-        setLoadError('read-failed');
-        setLoadState('failed');
-      });
-    },
-  }), [entries, profile, customFoods, favouriteFoodIds, verifiedFoodIds, recipes, portionMemory, loadState, loadError, lastBackupAt, undoLabel]);
+  }), [recipes]);
 
-  return <NutritionContext.Provider value={value}>{children}</NutritionContext.Provider>;
+  return (
+    <SessionContext.Provider value={sessionValue}>
+      <ProfileContext.Provider value={profileValue}>
+        <PersonalFoodsContext.Provider value={personalFoodsValue}>
+          <RecipesContext.Provider value={recipesValue}>
+            <DiaryContext.Provider value={diaryValue}>{children}</DiaryContext.Provider>
+          </RecipesContext.Provider>
+        </PersonalFoodsContext.Provider>
+      </ProfileContext.Provider>
+    </SessionContext.Provider>
+  );
 }
 
-export function useNutrition() {
-  const value = useContext(NutritionContext);
-  if (!value) throw new Error('useNutrition must be used within NutritionProvider');
-  return value;
+export function useSession() {
+  return requireStore(useContext(SessionContext), 'useSession');
+}
+
+export function useDiary() {
+  return requireStore(useContext(DiaryContext), 'useDiary');
+}
+
+export function useProfile() {
+  return requireStore(useContext(ProfileContext), 'useProfile');
+}
+
+export function usePersonalFoods() {
+  return requireStore(useContext(PersonalFoodsContext), 'usePersonalFoods');
+}
+
+export function useRecipes() {
+  return requireStore(useContext(RecipesContext), 'useRecipes');
 }

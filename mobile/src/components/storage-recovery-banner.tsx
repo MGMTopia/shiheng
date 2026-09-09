@@ -1,9 +1,9 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '@/constants/theme';
-import { useNutrition } from '@/store/nutrition-store';
+import { useSession } from '@/store/nutrition-store';
 
 export function StorageRecoveryBanner() {
-  const { loadState, loadError, startFreshAfterFailure, retryLoad } = useNutrition();
+  const { loadState, loadError, startFreshAfterFailure, retryLoad } = useSession();
   if (loadState !== 'failed') return null;
 
   const reason = loadError === 'invalid-json'

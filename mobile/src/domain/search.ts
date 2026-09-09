@@ -171,5 +171,24 @@ export function catalogSearchScore(food: Food, query: string, ctx: {
     + Number(ctx.favouriteFoodIds.includes(food.id)) * 50
     + Number(ctx.logged.has(food.id)) * 25
     + Number(ctx.featuredIds.has(food.id)) * 10
-    + Number(ctx.customIds.has(food.id)) * 8;
+    + Number(ctx.customIds.has(food.id)) * 8
+    - Number(food.tags.includes('overseas') || food.source.dataset === 'usda-fdc') * 40;
+}
+
+export function bestCatalogSearchScore(
+  food: Food,
+  byId: Map<string, Food>,
+  query: string,
+  ctx: {
+    favouriteFoodIds: string[];
+    logged: Set<string>;
+    featuredIds: Set<string>;
+    customIds: Set<string>;
+  },
+): number {
+  const members = [
+    food,
+    ...(food.alternateSources ?? []).map((item) => byId.get(item.foodId)).filter((item): item is Food => Boolean(item)),
+  ];
+  return Math.max(...members.map((member) => catalogSearchScore(member, query, ctx)));
 }

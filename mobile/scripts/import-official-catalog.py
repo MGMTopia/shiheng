@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data-raw"
 OUT = ROOT / "src" / "data" / "generated"
 KJ_TO_KCAL = 4.184
-UPDATED = "2026-09-04"
+UPDATED = "2026-09-08"
 
 FSANZ_LIMITATION = (
     "There are limitations associated with food composition databases. "
@@ -371,6 +371,40 @@ def build_afcd(used_keys: set[str], seeds: list[tuple[str, str, list[str]]]) -> 
     return foods
 
 
+FNDDS_SKIP = re.compile(
+    r"\b(infant|babyfood|baby food|babyfoods|toddler|formula|human milk|"
+    r"fast foods?|restaurant|ns as to|nfs|not further specified)\b",
+    re.I,
+)
+FNDDS_CAP = 600
+USDA_SOURCES = {
+    "foundation": {
+        "zip": "usda-foundation.zip",
+        "tag": "usda-foundation",
+        "confidence": "high",
+        "updatedAt": "2026-04-30",
+        "label": "USDA FoodData Central Foundation Foods，CC0 公有领域。美国分析样品，仅作对照，不是澳洲官方值。",
+        "require_macros": False,
+    },
+    "sr-legacy": {
+        "zip": "usda-sr-legacy.zip",
+        "tag": "usda-sr-legacy",
+        "confidence": "high",
+        "updatedAt": "2018-04-01",
+        "label": "USDA FoodData Central SR Legacy（2018），CC0 公有领域。美国分析样品，仅作对照，不是澳洲官方值。",
+        "require_macros": True,
+    },
+    "fndds": {
+        "zip": "usda-fndds.zip",
+        "tag": "usda-fndds",
+        "confidence": "medium",
+        "updatedAt": "2024-10-31",
+        "label": "USDA FNDDS 2021-2023 膳食调查食物，CC0。美国调查估算，仅作对照，不是澳洲官方值。",
+        "require_macros": True,
+    },
+}
+
+
 def usda_nutrients(entry: dict) -> dict:
     collected: dict[str, float] = {}
     for item in entry.get("foodNutrients") or []:
@@ -395,10 +429,15 @@ def usda_portion(entry: dict) -> tuple[str, float]:
     portions = entry.get("foodPortions") or []
     ranked = []
     for portion in portions:
-        grams = to_number(portion.get("gramWeight"))
+        grams = to_number(portion.get("gramWeight") or portion.get("gramWeightAmount"))
         if grams <= 0:
             continue
-        label = str(portion.get("portionDescription") or portion.get("modifier") or "portion").strip()
+        label = str(
+            portion.get("portionDescription")
+            or portion.get("modifier")
+            or (portion.get("measureUnit") or {}).get("name")
+            or "portion"
+        ).strip()
         ranked.append((abs(grams - 100), label, grams))
     if not ranked:
         return "100 g", 100.0
@@ -407,67 +446,169 @@ def usda_portion(entry: dict) -> tuple[str, float]:
     return (label or "100 g")[:48], grams
 
 
-def build_usda() -> list[dict]:
-    with zipfile.ZipFile(RAW / "usda-foundation.zip") as archive:
-        name = next(item for item in archive.namelist() if item.endswith(".json"))
+def usda_group(entry: dict) -> str:
+    category = entry.get("foodCategory")
+    if isinstance(category, dict):
+        return str(category.get("description") or "")
+    wweia = entry.get("wweiaFoodCategory") or {}
+    if isinstance(wweia, dict):
+        return str(wweia.get("wweiaFoodCategoryDescription") or wweia.get("description") or "")
+    return str(category or "")
+
+
+def load_usda_entries(zip_path: Path) -> list[dict]:
+    with zipfile.ZipFile(zip_path) as archive:
+        json_names = [name for name in archive.namelist() if name.endswith(".json")]
+        if not json_names:
+            raise FileNotFoundError(f"No JSON in {zip_path}")
+        name = max(json_names, key=lambda item: archive.getinfo(item).file_size)
         with archive.open(name) as handle:
             payload = json.load(handle)
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    for key in ("FoundationFoods", "SRLegacyFoods", "SurveyFoods", "Foods"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    for value in payload.values():
+        if isinstance(value, list) and value and isinstance(value[0], dict) and "fdcId" in value[0]:
+            return [item for item in value if isinstance(item, dict)]
+    raise ValueError(f"No USDA foods in {zip_path}")
+
+
+def has_macros(values: dict) -> bool:
+    return any(values.get(key, 0) > 0 for key in ("energyKcal", "proteinG", "fatG", "carbsG"))
+
+
+def skip_fndds(name: str, group: str) -> bool:
+    hay = f"{name} {group}"
+    if FNDDS_SKIP.search(hay):
+        return True
+    if name.count(",") > 3 or len(name) > 72:
+        return True
+    return False
+
+
+def fndds_key(name: str) -> str:
+    parts = [normalize_en(part) for part in name.split(",")[:2] if part.strip()]
+    return " ".join(part for part in parts if part)
+
+
+def to_usda_food(entry: dict, kind: str, seen_ids: set[str], seen_names: set[str]) -> dict | None:
+    spec = USDA_SOURCES[kind]
+    fdc_id = str(entry.get("fdcId") or "").strip()
+    name = str(entry.get("description") or "").strip()
+    if not fdc_id or not name or fdc_id in seen_ids:
+        return None
+    normalized = normalize_en(name)
+    if not normalized or normalized in seen_names:
+        return None
+    group = usda_group(entry)
+    if kind == "fndds" and skip_fndds(name, group):
+        return None
+    values = usda_nutrients(entry)
+    if spec["require_macros"] and not has_macros(values):
+        return None
+    serving_label, serving_grams = usda_portion(entry)
+    seen_ids.add(fdc_id)
+    seen_names.add(normalized)
+    return {
+        "id": f"usda-{fdc_id}",
+        "nameZh": name,
+        "nameEn": name,
+        "aliases": [fdc_id, "USDA", "美国"],
+        "category": category_for(group, name),
+        "servingLabel": serving_label,
+        "servingGrams": serving_grams,
+        "nutrientsPer100g": values,
+        "source": {
+            "type": "official",
+            "label": spec["label"],
+            "region": "US",
+            "confidence": spec["confidence"],
+            "updatedAt": spec["updatedAt"],
+            "dataset": "usda-fdc",
+            "externalId": fdc_id,
+        },
+        "tags": ["imported", "overseas", "usda", "reference", spec["tag"]],
+    }
+
+
+def build_usda_kind(kind: str, seen_ids: set[str], seen_names: set[str]) -> list[dict]:
+    spec = USDA_SOURCES[kind]
+    path = RAW / spec["zip"]
+    if not path.exists():
+        raise FileNotFoundError(f"Missing {path}. Run pnpm fetch:usda for SR Legacy and FNDDS.")
     foods = []
-    for entry in payload.get("FoundationFoods") or []:
-        if not isinstance(entry, dict):
+    for entry in load_usda_entries(path):
+        food = to_usda_food(entry, kind, seen_ids, seen_names)
+        if food:
+            foods.append(food)
+    if kind != "fndds":
+        return foods
+    foods.sort(key=lambda food: (food["nameEn"].count(","), len(food["nameEn"]), food["nameEn"]))
+    picked: list[dict] = []
+    used_keys: set[str] = set()
+    for food in foods:
+        key = fndds_key(food["nameEn"])
+        if not key or key in used_keys:
             continue
-        fdc_id = entry.get("fdcId")
-        name = str(entry.get("description") or "").strip()
-        if not fdc_id or not name:
-            continue
-        category_name = ((entry.get("foodCategory") or {}).get("description")) or ""
-        serving_label, serving_grams = usda_portion(entry)
-        foods.append({
-            "id": f"usda-{fdc_id}",
-            "nameZh": name,
-            "nameEn": name,
-            "aliases": [str(fdc_id), "USDA", "美国"],
-            "category": category_for(category_name, name),
-            "servingLabel": serving_label,
-            "servingGrams": serving_grams,
-            "nutrientsPer100g": usda_nutrients(entry),
-            "source": {
-                "type": "official",
-                "label": "USDA FoodData Central Foundation Foods，CC0 公有领域。美国分析样品，仅作对照，不是澳洲官方值。",
-                "region": "US",
-                "confidence": "high",
-                "updatedAt": "2026-04-30",
-                "dataset": "usda-fdc",
-                "externalId": str(fdc_id),
-            },
-            "tags": ["imported", "overseas", "usda", "reference"],
-        })
-    return foods
+        used_keys.add(key)
+        picked.append(food)
+        if len(picked) >= FNDDS_CAP:
+            break
+    return picked
+
+
+def build_usda() -> tuple[list[dict], dict[str, int]]:
+    seen_ids: set[str] = set()
+    seen_names: set[str] = set()
+    foundation = build_usda_kind("foundation", seen_ids, seen_names)
+    sr_legacy = build_usda_kind("sr-legacy", seen_ids, seen_names)
+    fndds = build_usda_kind("fndds", seen_ids, seen_names)
+    return [*foundation, *sr_legacy, *fndds], {
+        "usdaFoundation": len(foundation),
+        "usdaSrLegacy": len(sr_legacy),
+        "usdaFndds": len(fndds),
+    }
 
 
 def attach_references(au_foods: list[dict], usda_foods: list[dict]) -> None:
-    index = [(set(tokens(food["nameEn"])), food) for food in usda_foods]
+    candidates = [food for food in usda_foods if "usda-fndds" not in food["tags"]]
+    indexed = [(set(tokens(food["nameEn"])), food) for food in candidates]
+    token_index: dict[str, list[int]] = defaultdict(list)
+    for index, (usda_tokens, _) in enumerate(indexed):
+        for token in usda_tokens:
+            token_index[token].append(index)
     for food in au_foods:
         au_tokens = tokens(food["nameEn"])
         if len(au_tokens) < 2:
             continue
         scored = []
-        for usda_tokens, usda in index:
-            overlap = au_tokens & usda_tokens
-            if len(overlap) < 2:
-                continue
-            score = len(overlap) / min(len(au_tokens), len(usda_tokens))
-            if score >= 0.5:
-                scored.append((score, len(overlap), usda))
+        seen: set[int] = set()
+        for token in au_tokens:
+            for index in token_index.get(token, ()):
+                if index in seen:
+                    continue
+                seen.add(index)
+                usda_tokens, usda = indexed[index]
+                overlap = au_tokens & usda_tokens
+                if len(overlap) < 2:
+                    continue
+                score = len(overlap) / min(len(au_tokens), len(usda_tokens))
+                if score >= 0.5:
+                    bonus = 0.05 if "usda-foundation" in usda["tags"] else 0
+                    scored.append((score + bonus, len(overlap), usda))
         if not scored:
             continue
         scored.sort(key=lambda item: (-item[0], -item[1]))
         match = scored[0][2]
+        kind = "Foundation" if "usda-foundation" in match["tags"] else "SR Legacy"
         food["overseasReference"] = {
             "dataset": "usda-fdc",
             "nameEn": match["nameEn"],
             "externalId": match["source"]["externalId"],
-            "label": "USDA Foundation 对照（美国样品，CC0）",
+            "label": f"USDA {kind} 对照（美国样品，CC0）",
             "nutrientsPer100g": match["nutrientsPer100g"],
         }
 
@@ -488,14 +629,14 @@ def main() -> None:
     used_keys = {food.pop("_publicKey", "") for food in ausnut}
     used_keys.discard("")
     afcd = build_afcd(used_keys, seeds)
-    usda = build_usda()
+    usda, usda_counts = build_usda()
     attach_references(ausnut + afcd, usda)
     imported = [strip_private(food) for food in [*ausnut, *afcd, *usda]]
     stats = {
         "updatedAt": UPDATED,
         "ausnut": len(ausnut),
         "afcdExtra": len(afcd),
-        "usdaFoundation": len(usda),
+        **usda_counts,
         "withUsdaReference": sum(1 for food in imported if food.get("overseasReference")),
         "totalImported": len(imported),
         "licence": {
@@ -519,8 +660,9 @@ def main() -> None:
         "Licensed by Food Standards Australia New Zealand under a licence based on CC BY-SA 3.0 Australia.\n"
         "https://www.foodstandards.gov.au/science-data/monitoringnutrients/afcd/datauserlicenceagreement\n\n"
         f"{FSANZ_LIMITATION}\n\n"
-        "USDA FoodData Central Foundation Foods are CC0 1.0 public domain.\n"
-        "U.S. Department of Agriculture, Agricultural Research Service. FoodData Central, 2026. fdc.nal.usda.gov.\n",
+        "USDA FoodData Central Foundation Foods, SR Legacy, and FNDDS are CC0 1.0 public domain.\n"
+        "U.S. Department of Agriculture, Agricultural Research Service. FoodData Central, 2026. fdc.nal.usda.gov.\n"
+        "USDA values are United States samples and do not replace Australian official values.\n",
         encoding="utf-8",
     )
     print(json.dumps(stats, indent=2))

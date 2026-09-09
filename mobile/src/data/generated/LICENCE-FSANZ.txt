@@ -4,5 +4,6 @@ https://www.foodstandards.gov.au/science-data/monitoringnutrients/afcd/datauserl
 
 There are limitations associated with food composition databases. Food composition data used in the database or databases may represent an average of the nutrient content of a particular sample of foods and ingredients, determined at a particular time. The nutrient composition of foods and ingredients can vary substantially between batches and brands because of a number of factors, including changes in season, processing practices and ingredient source, and methods of calculation. The Work is based on Australian data and Australia data may not be appropriate for use in other countries.
 
-USDA FoodData Central Foundation Foods are CC0 1.0 public domain.
+USDA FoodData Central Foundation Foods, SR Legacy, and FNDDS are CC0 1.0 public domain.
 U.S. Department of Agriculture, Agricultural Research Service. FoodData Central, 2026. fdc.nal.usda.gov.
+USDA values are United States samples and do not replace Australian official values.
