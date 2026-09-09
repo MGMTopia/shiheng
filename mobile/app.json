@@ -2,14 +2,14 @@
   "expo": {
     "name": "食衡",
     "slug": "shiheng",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "shiheng",
     "userInterfaceStyle": "light",
     "android": {
       "package": "au.shiheng.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "allowBackup": false,
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
