@@ -22,7 +22,7 @@ const keystoreName = 'shiheng-upload.keystore';
 const keystorePath = path.join(credentialsDir, keystoreName);
 const propertiesPath = path.join(credentialsDir, 'keystore.properties');
 const releaseDir = path.join(root, 'release');
-const apkName = 'shiheng-1.0.1-closed-trial.apk';
+const apkName = 'shiheng-1.0.2-closed-trial.apk';
 
 if (!javaHome) {
   throw new Error('Set JAVA_HOME to a JDK 17+ install before building the local APK.');
