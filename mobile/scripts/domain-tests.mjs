@@ -476,6 +476,12 @@ const merged = createMergedFoodRepository(sqliteFoods, [packRepo]);
 assert.equal(merged.getByBarcode(packFood.barcode)?.id, packFood.id, '启用资料包后应暴露资料包条码');
 assert.equal(merged.getById(packFood.id)?.id, packFood.id, '启用资料包后应按 id 取资料包食品');
 assert.equal(merged.getById('egg-boiled')?.id, 'egg-boiled', '资料包启用后主库条目仍可查');
+assert.ok(
+  merged.search({ query: packFood.barcode, source: 'supermarket' }).some((food) => food.id === packFood.id)
+    || merged.search({ query: packFood.nameEn.slice(0, Math.min(12, packFood.nameEn.length)) }).some((food) => food.id === packFood.id),
+  '启用资料包后离线搜索应能命中资料包食品',
+);
+assert.ok(packManifest.attribution.includes('Open Food Facts'), '启用资料包时应有 ODbL/OFF 署名文本可展示');
 
 const customOverride = {
   ...packFood,
