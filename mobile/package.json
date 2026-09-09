@@ -11,8 +11,10 @@
     "expo": "~57.0.20",
     "expo-camera": "~57.0.4",
     "expo-constants": "~57.0.17",
+    "expo-crypto": "~57.0.2",
     "expo-file-system": "~57.0.6",
     "expo-linking": "~57.0.9",
+    "expo-network": "~57.0.1",
     "expo-router": "~57.0.19",
     "expo-sharing": "~57.0.18",
     "expo-splash-screen": "~57.0.8",
@@ -53,6 +55,7 @@
     "import:user-labels": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/import-user-labels.mjs",
     "catalog:build": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-catalog-db.mjs",
     "catalog:check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-catalog-db.mjs",
+    "pack:build": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-food-pack.mjs",
     "typecheck": "tsc --noEmit",
     "ci": "pnpm typecheck && pnpm lint && pnpm test:domain && pnpm catalog:check && pnpm export:web",
     "brand:rasterize": "python scripts/rasterize-brand.py"

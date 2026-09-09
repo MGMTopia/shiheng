@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SQLiteProvider, deleteDatabaseAsync, useSQLiteContext } from 'expo-sqlite';
 import { LoadingScreen } from '@/components/ui';
 import { CATALOG_DB_NAME } from '@/data/catalog-constants';
+import { FoodPackProvider } from '@/data/food-pack-provider';
 import { FoodRepositoryContext } from '@/data/food-repository-context';
 import { createSqliteFoodRepository } from '@/data/sqlite-food-repository';
 import { CATALOG_DB_NAME_KEY } from '@/domain/persisted-state';
@@ -15,7 +16,11 @@ function SqliteCatalog({ children }: PropsWithChildren) {
     all: (sql, params = []) => (params.length ? db.getAllSync(sql, params) : db.getAllSync(sql)),
     first: (sql, params = []) => (params.length ? db.getFirstSync(sql, params) : db.getFirstSync(sql)) ?? undefined,
   }), [db]);
-  return <FoodRepositoryContext.Provider value={repository}>{children}</FoodRepositoryContext.Provider>;
+  return (
+    <FoodRepositoryContext.Provider value={repository}>
+      <FoodPackProvider>{children}</FoodPackProvider>
+    </FoodRepositoryContext.Provider>
+  );
 }
 
 export function CatalogProvider({ children }: PropsWithChildren) {
