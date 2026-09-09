@@ -12,8 +12,8 @@ import {
   removePackRecord,
   resolvePackAssetUrl,
   setPackEnabled,
+  acceptPackEnable,
   upsertPackRecord,
-  verifyPackSha256,
   type FoodPackInstallRecord,
   type FoodPackInstallState,
   type FoodPackManifest,
@@ -124,7 +124,7 @@ export async function downloadAndInstallFoodPack(packId: string): Promise<Downlo
     if (!dest.exists) return { ok: false, error: '下载后未找到 foods.db。' };
 
     const actual = await sha256OfFile(dest);
-    const verified = verifyPackSha256(actual, expected);
+    const verified = acceptPackEnable(actual, expected);
     if (!verified.ok) {
       dest.delete();
       return {
@@ -171,7 +171,7 @@ export async function enableFoodPack(packId: string): Promise<DownloadPackResult
     const db = packDbFile(packId);
     if (!db.exists) return { ok: false, error: '本地 foods.db 已丢失，请重新下载。' };
     const actual = await sha256OfFile(db);
-    const verified = verifyPackSha256(actual, record.foodsDbSha256);
+    const verified = acceptPackEnable(actual, record.foodsDbSha256);
     if (!verified.ok) {
       await saveFoodPackInstallState(setPackEnabled(state, packId, false));
       return { ok: false, error: '校验失败：文件 SHA-256 与记录不符，已拒绝启用。' };

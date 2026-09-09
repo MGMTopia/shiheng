@@ -2,6 +2,7 @@ import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 import { Card, LoadingScreen, PrimaryButton, Screen, SectionTitle, TextButton } from '@/components/ui';
 import { colors, radii, spacing } from '@/constants/theme';
 import { useFoodPacks } from '@/data/food-pack-provider';
+import { enabledPackAttributions } from '@/domain/food-pack';
 import { useSession } from '@/store/nutrition-store';
 
 export default function FoodPacksScreen() {
@@ -10,7 +11,7 @@ export default function FoodPacksScreen() {
   if (!hydrated) return <LoadingScreen />;
 
   const installedIds = new Set(state.packs.map((pack) => pack.id));
-  const enabledAttribution = state.packs.filter((pack) => pack.enabled && pack.attribution);
+  const enabledAttribution = enabledPackAttributions(state);
 
   return <Screen>
     <View>

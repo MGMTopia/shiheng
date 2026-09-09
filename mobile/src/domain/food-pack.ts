@@ -90,6 +90,19 @@ export function enabledPackIds(state: FoodPackInstallState): string[] {
   return state.packs.filter((pack) => pack.enabled).map((pack) => pack.id);
 }
 
+/** Attribution rows shown in Settings when packs are enabled (ODbL / Open Food Facts). */
+export function enabledPackAttributions(state: FoodPackInstallState): FoodPackInstallRecord[] {
+  return state.packs.filter((pack) => pack.enabled && Boolean(pack.attribution?.trim()));
+}
+
+/**
+ * Gate used before enable: wrong or missing sha256 must reject.
+ * Install/enable services call this after hashing the on-disk foods.db.
+ */
+export function acceptPackEnable(actualFoodsDbSha256: string, expectedFoodsDbSha256: string | undefined): FoodPackVerifyResult {
+  return verifyPackSha256(actualFoodsDbSha256, expectedFoodsDbSha256);
+}
+
 export function parseFoodPackInstallState(raw: string | null | undefined): FoodPackInstallState {
   if (!raw) return emptyFoodPackInstallState();
   try {
