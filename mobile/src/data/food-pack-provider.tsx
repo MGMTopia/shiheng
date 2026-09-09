@@ -17,6 +17,7 @@ import {
   enableFoodPack,
   packDatabaseName,
   packDbFile,
+  safeFileExists,
   uninstallFoodPack,
 } from '@/services/food-pack-install';
 
@@ -46,7 +47,7 @@ function openEnabledPackRepositories(records: FoodPackInstallRecord[]) {
   const repositories = [];
   for (const record of records.filter((pack) => pack.enabled)) {
     const file = packDbFile(record.id);
-    if (!file.exists) continue;
+    if (!safeFileExists(file)) continue;
     try {
       const db = openDatabaseSync(packDatabaseName(record.id), { useNewConnection: true });
       opened.push({ id: record.id, db });
