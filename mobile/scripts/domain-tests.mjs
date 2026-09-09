@@ -450,6 +450,29 @@ assert.match(packManifest.licence, /ODbL/i);
 assert.match(packManifest.attribution, /Open Food Facts/i);
 assert.match(packManifest.downloadUrlPattern, /releases\/download/);
 
+const resolvedFoodsUrl = foodPack.resolvePackAssetUrl(packManifest, 'foods.db');
+assert.equal(typeof resolvedFoodsUrl, 'string', 'resolvePackAssetUrl 必须返回字符串');
+assert.match(resolvedFoodsUrl, /^https:\/\//, '资料包下载 URL 必须是 https 字符串');
+assert.equal(
+  resolvedFoodsUrl,
+  'https://github.com/MGMTopia/shiheng/releases/download/pack-au-supermarket-v1.0.0/foods.db',
+);
+assert.equal(foodPack.assertHttpUrl(resolvedFoodsUrl), resolvedFoodsUrl);
+assert.throws(() => foodPack.assertHttpUrl({ url: resolvedFoodsUrl }), /资料包下载地址无效/);
+assert.throws(() => foodPack.assertHttpUrl('ftp://example.com/x'), /资料包下载地址无效/);
+
+assert.equal(
+  foodPack.toAbsoluteFileUri('/data/user/0/com.example/files/SQLite'),
+  'file:///data/user/0/com.example/files/SQLite',
+  '裸绝对路径应转为 file:// URI（避免 Android URI is not absolute）',
+);
+assert.equal(
+  foodPack.toAbsoluteFileUri('file:///data/user/0/com.example/files/SQLite'),
+  'file:///data/user/0/com.example/files/SQLite',
+  '已有 file:// 的路径应原样保留',
+);
+assert.throws(() => foodPack.toAbsoluteFileUri('relative/path'), /not absolute/);
+
 const packDbPath = fileURLToPath(new URL('../packs/pack-au-supermarket/foods.db', import.meta.url));
 assert.ok(existsSync(packDbPath), '应提交 pack foods.db 产物');
 const actualPackSha = createHash('sha256').update(readFileSync(packDbPath)).digest('hex');

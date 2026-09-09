@@ -61,6 +61,35 @@ export function resolvePackAssetUrl(manifest: FoodPackManifest, asset: string): 
     .replaceAll('{asset}', asset);
 }
 
+/**
+ * expo-sqlite's `defaultDatabaseDirectory` is a bare absolute path on Android/iOS
+ * (e.g. `/data/.../files/SQLite`), while expo-file-system's `File`/`Directory`
+ * require a scheme like `file://`. Passing the bare path makes `.exists` throw
+ * `IllegalArgumentException: URI is not absolute`.
+ */
+export function toAbsoluteFileUri(pathOrUri: string): string {
+  const trimmed = pathOrUri.trim();
+  if (!trimmed) {
+    throw new Error('Empty filesystem path');
+  }
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return trimmed;
+  }
+  if (trimmed.startsWith('/')) {
+    return `file://${trimmed}`;
+  }
+  throw new Error(`Filesystem path is not absolute: ${trimmed}`);
+}
+
+/** Ensures download targets are plain http(s) strings, never objects. */
+export function assertHttpUrl(url: unknown): string {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url.trim())) {
+    const preview = typeof url === 'string' ? url : Object.prototype.toString.call(url);
+    throw new Error(`资料包下载地址无效（需要 http(s) 字符串）。Provided: ${preview}`);
+  }
+  return url.trim();
+}
+
 export function verifyPackSha256(actualHex: string, expectedHex: string | undefined): FoodPackVerifyResult {
   if (!expectedHex || !expectedHex.trim()) return { ok: false, reason: 'missing-hash' };
   if (actualHex.toLowerCase() !== expectedHex.toLowerCase()) return { ok: false, reason: 'sha256-mismatch' };

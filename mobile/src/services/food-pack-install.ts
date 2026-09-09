@@ -13,6 +13,8 @@ import {
   resolvePackAssetUrl,
   setPackEnabled,
   acceptPackEnable,
+  assertHttpUrl,
+  toAbsoluteFileUri,
   upsertPackRecord,
   type FoodPackInstallRecord,
   type FoodPackInstallState,
@@ -29,12 +31,34 @@ function packsMetaRoot(): Directory {
   return new Directory(Paths.document, 'food-packs');
 }
 
+/** SQLite DB directory as an expo-file-system Directory with an absolute file:// URI. */
+export function packDbDirectory(): Directory {
+  try {
+    if (typeof defaultDatabaseDirectory === 'string' && defaultDatabaseDirectory) {
+      return new Directory(toAbsoluteFileUri(defaultDatabaseDirectory));
+    }
+  } catch {
+    // Web / relative defaults (e.g. ".") cannot feed expo-file-system File URIs.
+  }
+  // Same location expo-sqlite uses on Android/iOS: <documentDirectory>/SQLite
+  return new Directory(Paths.document, 'SQLite');
+}
+
 export function packManifestFile(packId: string): File {
   return new File(packsMetaRoot(), packId, 'manifest.json');
 }
 
 export function packDbFile(packId: string): File {
-  return new File(defaultDatabaseDirectory, packDatabaseName(packId));
+  return new File(packDbDirectory(), packDatabaseName(packId));
+}
+
+/** `.exists` on a non-absolute File URI throws on Android; never let that crash UI. */
+export function safeFileExists(file: File | Directory): boolean {
+  try {
+    return file.exists;
+  } catch {
+    return false;
+  }
 }
 
 export async function loadFoodPackInstallState(): Promise<FoodPackInstallState> {
@@ -75,18 +99,27 @@ async function fetchText(url: string): Promise<string> {
 }
 
 function candidateUrls(manifest: FoodPackManifest, asset: string): string[] {
-  const primary = resolvePackAssetUrl(manifest, asset);
-  const fallback = `https://raw.githubusercontent.com/MGMTopia/shiheng/main/mobile/packs/${manifest.id}/${asset}`;
+  const primary = assertHttpUrl(resolvePackAssetUrl(manifest, asset));
+  const fallback = assertHttpUrl(
+    `https://raw.githubusercontent.com/MGMTopia/shiheng/main/mobile/packs/${manifest.id}/${asset}`,
+  );
   return primary === fallback ? [primary] : [primary, fallback];
 }
 
+function ensureParentDirectory(file: File): void {
+  file.parentDirectory.create({ intermediates: true, idempotent: true });
+}
+
 async function downloadFirstAvailable(urls: string[], dest: File): Promise<void> {
+  ensureParentDirectory(dest);
   let lastError: Error | null = null;
-  for (const url of urls) {
+  for (const rawUrl of urls) {
+    const url = assertHttpUrl(rawUrl);
     try {
-      if (dest.exists) dest.delete();
+      if (safeFileExists(dest)) dest.delete();
+      // Expo 57: (httpsUrl: string, destination: File | Directory, options?)
       await File.downloadFileAsync(url, dest, { idempotent: true });
-      if (dest.exists) return;
+      if (safeFileExists(dest)) return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
     }
@@ -121,12 +154,12 @@ export async function downloadAndInstallFoodPack(packId: string): Promise<Downlo
     const expected = manifest.sha256['foods.db'];
     const dest = packDbFile(packId);
     await downloadFirstAvailable(candidateUrls(manifest, manifest.assets.foodsDb || 'foods.db'), dest);
-    if (!dest.exists) return { ok: false, error: '下载后未找到 foods.db。' };
+    if (!safeFileExists(dest)) return { ok: false, error: '下载后未找到 foods.db。' };
 
     const actual = await sha256OfFile(dest);
     const verified = acceptPackEnable(actual, expected);
     if (!verified.ok) {
-      dest.delete();
+      try { dest.delete(); } catch { /* ignore */ }
       return {
         ok: false,
         error: verified.reason === 'sha256-mismatch'
@@ -136,9 +169,11 @@ export async function downloadAndInstallFoodPack(packId: string): Promise<Downlo
     }
 
     const metaDir = new Directory(packsMetaRoot(), packId);
-    if (!metaDir.exists) metaDir.create({ intermediates: true, idempotent: true });
+    metaDir.create({ intermediates: true, idempotent: true });
     const manifestFile = packManifestFile(packId);
-    if (manifestFile.exists) manifestFile.delete();
+    if (safeFileExists(manifestFile)) {
+      try { manifestFile.delete(); } catch { /* ignore */ }
+    }
     manifestFile.create();
     manifestFile.write(JSON.stringify(manifest, null, 2));
 
@@ -169,7 +204,7 @@ export async function enableFoodPack(packId: string): Promise<DownloadPackResult
     const record = state.packs.find((pack) => pack.id === packId);
     if (!record) return { ok: false, error: '尚未安装该资料包。' };
     const db = packDbFile(packId);
-    if (!db.exists) return { ok: false, error: '本地 foods.db 已丢失，请重新下载。' };
+    if (!safeFileExists(db)) return { ok: false, error: '本地 foods.db 已丢失，请重新下载。' };
     const actual = await sha256OfFile(db);
     const verified = acceptPackEnable(actual, record.foodsDbSha256);
     if (!verified.ok) {
@@ -198,16 +233,16 @@ export async function uninstallFoodPack(packId: string): Promise<void> {
     await deleteDatabaseAsync(packDatabaseName(packId));
   } catch {
     const db = packDbFile(packId);
-    if (db.exists) {
+    if (safeFileExists(db)) {
       try { db.delete(); } catch { /* ignore */ }
     }
   }
   const manifest = packManifestFile(packId);
-  if (manifest.exists) {
+  if (safeFileExists(manifest)) {
     try { manifest.delete(); } catch { /* ignore */ }
   }
   const metaDir = new Directory(packsMetaRoot(), packId);
-  if (metaDir.exists) {
+  if (safeFileExists(metaDir)) {
     try { metaDir.delete(); } catch { /* ignore */ }
   }
 }
