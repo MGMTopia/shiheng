@@ -87,6 +87,9 @@ export default function ProfileScreen() {
 
     <SectionTitle>设置</SectionTitle>
     <View style={styles.actionList}>
+      <Pressable onPress={() => router.push('/food-packs')} style={styles.actionRow}>
+        <View style={styles.actionMain}><Text style={styles.actionTitle}>食品资料包</Text><Text style={styles.actionDescription}>Wi‑Fi 下载澳洲超市包装离线库；校验后启用，卸载不影响日记。</Text></View><Text style={styles.actionArrow}>›</Text>
+      </Pressable>
       <Pressable onPress={() => router.push('/trends')} style={styles.actionRow}>
         <View style={styles.actionMain}><Text style={styles.actionTitle}>饮食趋势</Text><Text style={styles.actionDescription}>查看 7/30 天平均、记录完整度和可执行建议。</Text></View><Text style={styles.actionArrow}>›</Text>
       </Pressable>

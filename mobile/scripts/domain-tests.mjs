@@ -239,8 +239,9 @@ assert.ok(!('composition' in recipes.starterRecipes[0]), '套餐不是单道复�
 assert.ok(catalog.searchCatalog({ source: 'official' }).length <= 30, '来源筛选澳洲官方应分页');
 assert.ok(catalog.searchCatalog({ source: 'common' }).length < 200, '常用来源空白搜索只返回常用食物');
 
-const { existsSync } = await import('node:fs');
+const { existsSync, readFileSync } = await import('node:fs');
 const { DatabaseSync } = await import('node:sqlite');
+const { createHash } = await import('node:crypto');
 const { createSqliteFoodRepository } = await import('../src/data/sqlite-food-repository.ts');
 const catalogDbPath = fileURLToPath(new URL('../assets/catalog/foods.db', import.meta.url));
 assert.ok(existsSync(catalogDbPath), '应生成预计算 SQLite 目录库');
@@ -310,7 +311,7 @@ const withUserLabel = [...foods, bulkUserMilk];
 const userLabelIndex = groups.buildClusterIndex(withUserLabel);
 assert.ok(!groups.clusterMembers(withUserLabel, userLabelIndex, 'milk-full-cream').some((food) => food.id === 'user-bulk-milk'), '用户批量标签不得自动并进官方牛奶');
 assert.ok(groups.clusterMembers(withUserLabel, userLabelIndex, 'user-bulk-milk').every((food) => food.id === 'user-bulk-milk' || food.source.dataset === 'user-entry'), '用户批量标签应保持独立来源');
-catalogDb.close();
+// catalogDb stays open for food-pack merge tests below
 
 const bokChoyNamed = foods.filter((food) => food.nameZh === '清炒小白菜');
 assert.ok(bokChoyNamed.length >= 1 && bokChoyNamed.length <= 8, '清炒小白菜应只覆盖小白菜/bok choy');
@@ -425,4 +426,132 @@ assert.ok(saltyWeek.highSodiumDays >= 3, '应识别重复高钠天');
 assert.ok(trends.actionableAdvice(nutrition.emptyNutrients(), nutrition.emptyFoodGroups(), saltyWeek, targets, false).some((item) => /钠/.test(item.title)), '应给出减少高钠食物的建议');
 assert.match(trends.weekSummaryCsv(sodiumEntries, foodsById, 7, '2026-09-06'), /date,logged,complete/);
 
-console.log('Domain checks passed: nutrition math, shared meals, recipes vs foods, sources, catalog quality, persistence, backup, and trends.');
+const foodPack = await import('../src/domain/food-pack.ts');
+const { createMergedFoodRepository } = await import('../src/data/merged-food-repository.ts');
+
+// --- Acceptance criteria for optional food packs (AC1–AC7) ---
+
+// AC4: Wrong sha256 → enable rejected
+assert.equal(foodPack.acceptPackEnable('abc', 'abc').ok, true, 'AC4: 相同 sha256 允许启用');
+assert.equal(foodPack.acceptPackEnable('abc', 'ABC').ok, true, 'AC4: sha256 比较忽略大小写');
+assert.equal(foodPack.acceptPackEnable('abc', 'def').ok, false, 'AC4: sha256 不符应拒绝启用');
+assert.equal(foodPack.acceptPackEnable('abc', 'def').reason, 'sha256-mismatch');
+assert.equal(foodPack.acceptPackEnable('abc', '').ok, false, 'AC4: 缺少 hash 应拒绝启用');
+assert.equal(foodPack.acceptPackEnable('abc', undefined).reason, 'missing-hash');
+
+const packManifestPath = fileURLToPath(new URL('../packs/pack-au-supermarket/manifest.json', import.meta.url));
+assert.ok(existsSync(packManifestPath), '应提交 pack-au-supermarket/manifest.json');
+const packManifest = foodPack.parseFoodPackManifest(readFileSync(packManifestPath, 'utf8'));
+assert.ok(packManifest, 'manifest 应可解析');
+assert.equal(packManifest.id, 'pack-au-supermarket');
+assert.ok(packManifest.foodCount >= 500 && packManifest.foodCount <= 2000, '资料包规模应在 500–2000');
+assert.ok(packManifest.sha256['foods.db'], 'manifest 应含 foods.db sha256');
+assert.match(packManifest.licence, /ODbL/i);
+assert.match(packManifest.attribution, /Open Food Facts/i);
+assert.match(packManifest.downloadUrlPattern, /releases\/download/);
+
+const packDbPath = fileURLToPath(new URL('../packs/pack-au-supermarket/foods.db', import.meta.url));
+assert.ok(existsSync(packDbPath), '应提交 pack foods.db 产物');
+const actualPackSha = createHash('sha256').update(readFileSync(packDbPath)).digest('hex');
+assert.equal(actualPackSha, packManifest.sha256['foods.db'], '提交的 foods.db 应与 manifest sha256 一致');
+assert.equal(foodPack.acceptPackEnable('0'.repeat(64), packManifest.sha256['foods.db']).ok, false, 'AC4: 错误 foods.db 哈希不得启用');
+
+const packDb = new DatabaseSync(packDbPath, { readOnly: true });
+const packRepo = createSqliteFoodRepository({
+  all: (sql, params = []) => {
+    const statement = packDb.prepare(sql);
+    return params.length ? statement.all(...params) : statement.all();
+  },
+  first: (sql, params = []) => {
+    const statement = packDb.prepare(sql);
+    return params.length ? statement.get(...params) : statement.get();
+  },
+});
+const packSample = packDb.prepare('SELECT id, json FROM foods LIMIT 1').get();
+assert.match(packSample.id, /^au:gtin:\d{8,}$/, '资料包食品 id 应为 au:gtin:<barcode>');
+const packFood = JSON.parse(packSample.json);
+assert.ok(packFood.barcode, '资料包行应含条码');
+
+// AC1: No pack installed → behavior unchanged vs main catalog
+const mainOnly = createMergedFoodRepository(sqliteFoods, []);
+assert.equal(mainOnly.getByBarcode('9300652010794')?.id, sqliteFoods.getByBarcode('9300652010794')?.id, 'AC1: 无资料包时条码查找与主库一致');
+assert.equal(mainOnly.getById('egg-boiled')?.id, sqliteFoods.getById('egg-boiled')?.id, 'AC1: 无资料包时 getById 与主库一致');
+assert.deepEqual(
+  mainOnly.search({ query: '番茄炒蛋' }).map((food) => food.id),
+  sqliteFoods.search({ query: '番茄炒蛋' }).map((food) => food.id),
+  'AC1: 无资料包时搜索结果与主库一致',
+);
+
+// AC2: After install+enable, in-pack barcode resolves to pack food (scan → /food/[id])
+const merged = createMergedFoodRepository(sqliteFoods, [packRepo]);
+const scanHit = merged.getByBarcode(packFood.barcode);
+assert.equal(scanHit?.id, packFood.id, 'AC2: 启用后资料包条码应命中资料包食品（打开详情用该 id）');
+assert.equal(merged.getById(scanHit.id)?.barcode, packFood.barcode, 'AC2: 详情页按 id 可取回同一条包装食品');
+
+// AC3: Search/scan fully offline after install (local SQLite merge only)
+assert.ok(
+  merged.search({ query: packFood.barcode }).some((food) => food.id === packFood.id),
+  'AC3: 启用后离线条码搜索应命中资料包',
+);
+assert.ok(
+  merged.search({ query: packFood.nameEn.slice(0, Math.min(16, packFood.nameEn.length)) }).some((food) => food.id === packFood.id)
+    || merged.search({ query: packFood.barcode, source: 'supermarket' }).some((food) => food.id === packFood.id),
+  'AC3: 启用后离线名称/超市筛选搜索应能命中资料包',
+);
+assert.equal(merged.getById('egg-boiled')?.id, 'egg-boiled', 'AC3: 启用资料包后主库仍可离线查询');
+
+// AC7: Same barcode — custom food wins over pack
+const customOverride = {
+  ...packFood,
+  id: packFood.id,
+  nameZh: '我手抄的同条码食品',
+  custom: true,
+  tags: ['custom'],
+  source: { ...packFood.source, dataset: 'user-entry', type: 'label', label: '用户录入', confidence: 'estimate' },
+};
+assert.equal(merged.getById(packFood.id, [customOverride])?.nameZh, '我手抄的同条码食品', 'AC7: 自定义同 id 覆盖资料包');
+assert.equal(merged.getByBarcode(packFood.barcode, [customOverride])?.nameZh, '我手抄的同条码食品', 'AC7: 自定义同条码覆盖资料包');
+
+// AC5: Uninstall → only main + custom for lookups; diary entries untouched
+const diaryBeforeUninstall = [
+  { id: 'd1', foodId: packFood.id, servings: 1, meal: 'snack', recordedAt: '2026-09-09T00:00:00.000Z' },
+  { id: 'd2', foodId: 'egg-boiled', servings: 1, meal: 'breakfast', recordedAt: '2026-09-09T01:00:00.000Z' },
+];
+const diarySnapshot = JSON.stringify(diaryBeforeUninstall);
+const afterUninstall = createMergedFoodRepository(sqliteFoods, []);
+assert.equal(afterUninstall.getById(packFood.id), undefined, 'AC5: 卸载后资料包 id 不再可查');
+assert.notEqual(afterUninstall.getByBarcode(packFood.barcode)?.id, packFood.id, 'AC5: 卸载后条码不再走资料包');
+assert.equal(afterUninstall.getById('egg-boiled')?.id, 'egg-boiled', 'AC5: 卸载后主库仍可查');
+assert.equal(afterUninstall.getById(packFood.id, [customOverride])?.nameZh, '我手抄的同条码食品', 'AC5: 卸载后自定义仍可查');
+assert.equal(JSON.stringify(diaryBeforeUninstall), diarySnapshot, 'AC5: 卸载资料包不得改动日记条目数组');
+assert.equal(diaryBeforeUninstall[0].foodId, packFood.id, 'AC5: 日记仍可保留已卸载资料包的 foodId 引用');
+
+packDb.close();
+catalogDb.close();
+
+// AC6: ODbL / Open Food Facts attribution visible when pack enabled
+let packState = foodPack.emptyFoodPackInstallState();
+assert.deepEqual(foodPack.enabledPackAttributions(packState), [], 'AC6: 未启用时不展示署名');
+packState = foodPack.upsertPackRecord(packState, {
+  id: 'pack-au-supermarket',
+  version: '1.0.0',
+  enabled: true,
+  installedAt: '2026-09-09T00:00:00.000Z',
+  foodsDbSha256: actualPackSha,
+  foodCount: packManifest.foodCount,
+  attribution: packManifest.attribution,
+  licence: packManifest.licence,
+  title: packManifest.title,
+});
+const attrs = foodPack.enabledPackAttributions(packState);
+assert.equal(attrs.length, 1, 'AC6: 启用后应展示署名');
+assert.match(attrs[0].attribution, /Open Food Facts/i, 'AC6: 署名含 Open Food Facts');
+assert.match(attrs[0].licence, /ODbL/i, 'AC6: 署名含 ODbL');
+assert.match(attrs[0].attribution, /ODbL/i, 'AC6: 署名正文含 ODbL');
+packState = foodPack.setPackEnabled(packState, 'pack-au-supermarket', false);
+assert.deepEqual(foodPack.enabledPackAttributions(packState), [], 'AC6: 停用后隐藏署名');
+assert.deepEqual(foodPack.enabledPackIds(packState), []);
+packState = foodPack.removePackRecord(packState, 'pack-au-supermarket');
+assert.equal(packState.packs.length, 0, '卸载应移除安装记录');
+
+console.log('Domain checks passed: nutrition math, shared meals, recipes vs foods, sources, catalog quality, persistence, backup, trends, and food packs (AC1–AC7).');

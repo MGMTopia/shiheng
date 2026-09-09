@@ -20,6 +20,7 @@
 - 安卓正式包自动更新（EAS Update）与卸载彻底清除（关闭系统备份）
 - 顶层错误边界和无额外依赖的领域测试
 - 明确的一般健康/非医疗用途边界
+- 可选「食品资料包」：Wi‑Fi 手动下载 Open Food Facts 澳洲包装离线库（校验 SHA-256 后启用；不打进 APK）
 
 ## 开始运行
 
@@ -91,6 +92,20 @@ python scripts/import-official-catalog.py
 ```
 
 不要把当前 `foods.ts` 中的样例值直接迁移到生产数据库。
+
+## 可选食品资料包（离线包装库）
+
+资料包与随包底库版本独立。手机**不会**调用 Open Food Facts / 超市 API，也**不会**把大库打进 APK。
+
+```powershell
+cd mobile
+pnpm fetch:off      # 电脑端拉取 AU JSONL → data-raw/（已 gitignore）
+pnpm pack:build     # 生成 packs/pack-au-supermarket/{manifest.json,foods.db,.gz}
+```
+
+发布：创建 GitHub Release，tag 形如 `pack-au-supermarket-v1.0.0`，上传 `foods.db`、`manifest.json` 与可选的 `*.foods.db.gz`。期望 SHA-256 写在 `packs/pack-au-supermarket/manifest.json` 与同目录 `README.md`。应用优先从 Release 下载；若尚未发布，会回退到 `raw.githubusercontent.com/.../mobile/packs/...`。
+
+应用内路径：我的 → 食品资料包。启用后搜索/条码离线合并（自定义食品优先）；卸载只删资料包文件，不删日记。
 
 ## 安卓封闭测试安装包
 

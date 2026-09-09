@@ -1,0 +1,33 @@
+{
+  "id": "pack-au-supermarket",
+  "version": "1.0.0",
+  "title": "澳洲超市包装食品包",
+  "titleEn": "AU supermarket packaged foods",
+  "description": "Open Food Facts Australia 高质量包装食品离线包（约 500–2000 条）。Wi‑Fi 下手动下载，校验后启用。",
+  "descriptionEn": "Higher-quality Open Food Facts Australia packaged products for offline barcode/search. Manual Wi‑Fi download only.",
+  "foodCount": 612,
+  "sha256": {
+    "foods.db": "4c213ad2aebf3f9d894c769a035731dc0b6913b8aee4780298fdfd61ad845bc5",
+    "pack-au-supermarket-v1.0.0.foods.db.gz": "c53cb142bf5129df5843980555b42e4b5576edadfbdb805c8047d5d3d6eca684"
+  },
+  "licence": "ODbL-1.0",
+  "attribution": "Contains information from Open Food Facts (https://openfoodfacts.org/), which is made available under the Open Database License (ODbL 1.0). Product data is community-contributed; always prefer the package label.",
+  "source": {
+    "name": "Open Food Facts",
+    "url": "https://world.openfoodfacts.org/",
+    "region": "AU"
+  },
+  "downloadUrlPattern": "https://github.com/MGMTopia/shiheng/releases/download/pack-au-supermarket-v{version}/{asset}",
+  "assets": {
+    "foodsDb": "foods.db",
+    "manifest": "manifest.json",
+    "archive": "pack-au-supermarket-v1.0.0.foods.db.gz"
+  },
+  "createdAt": "2026-09-09T05:15:43.747Z",
+  "schema": "foods+foods_fts",
+  "notes": [
+    "Food IDs are au:gtin:<barcode>.",
+    "Main catalog version is independent of this pack version.",
+    "Prefer Woolworths/Coles when store tags are present."
+  ]
+}
