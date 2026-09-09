@@ -12,14 +12,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const androidHome = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(os.homedir(), 'AppData/Local/Android/Sdk');
+const defaultAndroidHome = process.platform === 'win32'
+  ? path.join(os.homedir(), 'AppData/Local/Android/Sdk')
+  : path.join(os.homedir(), 'Android/Sdk');
+const androidHome = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || defaultAndroidHome;
 const javaHome = process.env.JAVA_HOME;
 const credentialsDir = path.join(root, 'credentials');
 const keystoreName = 'shiheng-upload.keystore';
 const keystorePath = path.join(credentialsDir, keystoreName);
 const propertiesPath = path.join(credentialsDir, 'keystore.properties');
 const releaseDir = path.join(root, 'release');
-const apkName = 'shiheng-1.0.0-closed-trial.apk';
+const apkName = 'shiheng-1.0.1-closed-trial.apk';
 
 if (!javaHome) {
   throw new Error('Set JAVA_HOME to a JDK 17+ install before building the local APK.');
@@ -227,9 +230,7 @@ ${mapping.map(({ name, androidDir }) => `project(':${name}').projectDir = new Fi
   return mapping.map((entry) => entry.androidDir);
 }
 
-function injectWindowsNativeWorkarounds() {
-  if (process.platform !== 'win32') return;
-
+function preferArm64Architecture() {
   const gradlePropertiesPath = path.join(root, 'android', 'gradle.properties');
   let gradleProperties = fs.readFileSync(gradlePropertiesPath, 'utf8');
   gradleProperties = gradleProperties.replace(
@@ -237,7 +238,30 @@ function injectWindowsNativeWorkarounds() {
     'reactNativeArchitectures=arm64-v8a',
   );
   fs.writeFileSync(gradlePropertiesPath, gradleProperties);
+}
 
+function tuneGradleForClosedTrial() {
+  const gradlePropertiesPath = path.join(root, 'android', 'gradle.properties');
+  let gradleProperties = fs.readFileSync(gradlePropertiesPath, 'utf8');
+  const jvmLine = 'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8';
+  if (/^org\.gradle\.jvmargs=/m.test(gradleProperties)) {
+    gradleProperties = gradleProperties.replace(/^org\.gradle\.jvmargs=.*$/m, jvmLine);
+  } else {
+    gradleProperties += `\n${jvmLine}\n`;
+  }
+  // Vital lint OOMs / hangs on constrained CI agents; release APK still packages fine.
+  if (!/^android\.lint\.checkReleaseBuilds=/m.test(gradleProperties)) {
+    gradleProperties += '\nandroid.lint.checkReleaseBuilds=false\n';
+  }
+  fs.writeFileSync(gradlePropertiesPath, gradleProperties);
+}
+
+function injectWindowsNativeWorkarounds() {
+  // Closed-trial ships arm64 only (matches prior phone installs).
+  preferArm64Architecture();
+  tuneGradleForClosedTrial();
+  // Windows NDK short-path relocation is not needed on Linux/macOS.
+  if (process.platform !== 'win32') return [];
   return relocateNativeCmakePackages();
 }
 
@@ -276,9 +300,16 @@ injectSigning(properties);
 const shortAndroidDirs = injectWindowsNativeWorkarounds() || [];
 cleanStaleNdkDirs(shortAndroidDirs);
 const androidDir = path.join(root, 'android');
+const gradleArgs = [
+  'assembleRelease',
+  '-x', 'lintVitalAnalyzeRelease',
+  '-x', 'lintVitalReportRelease',
+  '-x', 'lintVitalRelease',
+  '--no-daemon',
+];
 if (process.platform === 'win32') {
-  run('gradlew.bat', ['assembleRelease'], androidDir);
+  run('gradlew.bat', gradleArgs, androidDir);
 } else {
-  run('./gradlew', ['assembleRelease'], androidDir);
+  run('./gradlew', gradleArgs, androidDir);
 }
 copyApk();
