@@ -304,6 +304,7 @@ const gradleArgs = [
   'assembleRelease',
   '-x', 'lintVitalAnalyzeRelease',
   '-x', 'lintVitalReportRelease',
+  '-x', 'lintVitalRelease',
   '--no-daemon',
 ];
 if (process.platform === 'win32') {
